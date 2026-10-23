@@ -76,7 +76,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       genres: [],
       mood: undefined,
       minRating: 1.0,
-      maxRating: 10.0,
+      maxRating: 5.0,
       releaseYearMin: undefined,
       releaseYearMax: undefined,
       maxTimeMinutes: undefined,
@@ -163,7 +163,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           {/* Sort Selector */}
           <select
             value={filter.sortBy}
-            onChange={e => onFilterChange({ ...filter, sortBy: e.target.value as any })}
+            onChange={e => onFilterChange({ ...filter, sortBy: e.target.value as FilterState['sortBy'] })}
             className="rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             <option value="recommended">Recommended First</option>
@@ -301,8 +301,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               </div>
               <input
                 type="range"
-                min="1.0"
-                max="9.5"
+                min="0"
+                max="5"
                 step="0.5"
                 value={filter.minRating}
                 onChange={e => onFilterChange({ ...filter, minRating: parseFloat(e.target.value) })}

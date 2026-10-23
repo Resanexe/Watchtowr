@@ -13,15 +13,36 @@ const MY_LIST_KEY = 'watchtowr_my_list';
 const REVIEWS_KEY = 'watchtowr_user_reviews';
 const FEEDBACK_KEY = 'watchtowr_user_feedback';
 const USER_SESSION_KEY = 'watchtowr_user_session';
+export const STORAGE_KEYS = {
+  preferences: PREFS_KEY,
+  myList: MY_LIST_KEY,
+  reviews: REVIEWS_KEY,
+  feedback: FEEDBACK_KEY,
+  session: USER_SESSION_KEY,
+};
+
+function notifyStorageChange(key: string): void {
+  if (isClient) {
+    window.dispatchEvent(new CustomEvent('watchtowr:storage-change', { detail: key }));
+  }
+}
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   preferredCategories: ['movie', 'tv', 'anime', 'game'],
   preferredGenres: ['Sci-Fi', 'Action', 'Psychological'],
   dislikedGenres: [],
   preferredMoods: ['Mind-Bending', 'Adrenaline / Thrill'],
-  minRating: 7.0,
+  minRating: 0,
   discoveryLevel: 0.3,
 };
+
+export function normalizePreferences(preferences: UserPreferences): UserPreferences {
+  return {
+    ...DEFAULT_PREFERENCES,
+    ...preferences,
+    minRating: preferences.minRating > 5 ? preferences.minRating / 2 : preferences.minRating,
+  };
+}
 
 export interface UserSession {
   isGuest: boolean;
@@ -60,13 +81,14 @@ export function getStoredSession(): UserSession {
 export function saveStoredSession(session: UserSession): void {
   if (!isClient) return;
   localStorage.setItem(USER_SESSION_KEY, JSON.stringify(session));
+  notifyStorageChange(USER_SESSION_KEY);
 }
 
 export function getStoredPreferences(): UserPreferences {
   if (!isClient) return DEFAULT_PREFERENCES;
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    return raw ? JSON.parse(raw) : DEFAULT_PREFERENCES;
+    return raw ? normalizePreferences(JSON.parse(raw) as UserPreferences) : DEFAULT_PREFERENCES;
   } catch {
     return DEFAULT_PREFERENCES;
   }
@@ -74,7 +96,8 @@ export function getStoredPreferences(): UserPreferences {
 
 export function saveStoredPreferences(prefs: UserPreferences): void {
   if (!isClient) return;
-  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  localStorage.setItem(PREFS_KEY, JSON.stringify(normalizePreferences(prefs)));
+  notifyStorageChange(PREFS_KEY);
 }
 
 export function getStoredMyList(): MyListItem[] {
@@ -103,6 +126,7 @@ export function updateMyListItem(
     // Remove from list
     const updated = list.filter(item => item.mediaId !== mediaId);
     localStorage.setItem(MY_LIST_KEY, JSON.stringify(updated));
+    notifyStorageChange(MY_LIST_KEY);
     return updated;
   }
 
@@ -128,6 +152,7 @@ export function updateMyListItem(
   }
 
   localStorage.setItem(MY_LIST_KEY, JSON.stringify(list));
+  notifyStorageChange(MY_LIST_KEY);
   return list;
 }
 
@@ -174,6 +199,7 @@ export function saveStoredReview(
   }
 
   localStorage.setItem(REVIEWS_KEY, JSON.stringify(reviews));
+  notifyStorageChange(REVIEWS_KEY);
   return reviews;
 }
 
@@ -181,6 +207,7 @@ export function deleteStoredReview(mediaId: string): UserReview[] {
   if (!isClient) return [];
   const reviews = getStoredReviews().filter(r => r.mediaId !== mediaId);
   localStorage.setItem(REVIEWS_KEY, JSON.stringify(reviews));
+  notifyStorageChange(REVIEWS_KEY);
   return reviews;
 }
 
@@ -210,6 +237,7 @@ export function addFeedbackSignal(
     createdAt: new Date().toISOString(),
   });
   localStorage.setItem(FEEDBACK_KEY, JSON.stringify(feedback));
+  notifyStorageChange(FEEDBACK_KEY);
   return feedback;
 }
 
@@ -219,6 +247,8 @@ export function resetRecommendationHistory(): void {
   localStorage.removeItem(FEEDBACK_KEY);
   // Revert preferences to default without clearing MyList or saved reviews
   localStorage.setItem(PREFS_KEY, JSON.stringify(DEFAULT_PREFERENCES));
+  notifyStorageChange(FEEDBACK_KEY);
+  notifyStorageChange(PREFS_KEY);
 }
 
 // PRD FR-023: Account Deletion and Purge
@@ -229,4 +259,9 @@ export function deleteAccountData(): void {
   localStorage.removeItem(MY_LIST_KEY);
   localStorage.removeItem(REVIEWS_KEY);
   localStorage.removeItem(FEEDBACK_KEY);
+  notifyStorageChange(USER_SESSION_KEY);
+  notifyStorageChange(PREFS_KEY);
+  notifyStorageChange(MY_LIST_KEY);
+  notifyStorageChange(REVIEWS_KEY);
+  notifyStorageChange(FEEDBACK_KEY);
 }

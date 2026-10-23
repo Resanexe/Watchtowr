@@ -42,10 +42,15 @@
 # 1. Navigate to the project directory
 cd watchtowr
 
-# 2. Run the development server
+# 2. (Optional) Add private provider keys to .env.local
+# TMDB_API_KEY=...
+# RAWG_API_KEY=...
+# These are only read by the server-side catalog route; leave them unset to use offline sample data.
+
+# 3. Run the development server
 npm run dev
 
-# 3. Open in your browser
+# 4. Open in your browser
 # http://localhost:3000
 ```
 

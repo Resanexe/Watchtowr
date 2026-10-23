@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import {
   X,
   Bookmark,
@@ -9,8 +10,6 @@ import {
   Tv,
   Sparkles,
   Trash2,
-  Check,
-  ChevronDown,
 } from 'lucide-react';
 import { MyListItem, MyListStatus, MediaCategory } from '@/types';
 import { formatCategory } from '@/lib/utils';
@@ -30,9 +29,9 @@ export const MyListModal: React.FC<MyListModalProps> = ({
   onUpdateStatus,
   onSelectTitle,
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<'all' | MyListStatus>('all');
+
+  if (!isOpen) return null;
 
   const filteredItems = items.filter(
     item => activeTab === 'all' || item.status === activeTab
@@ -135,9 +134,11 @@ export const MyListModal: React.FC<MyListModalProps> = ({
                   }}
                   className="flex items-center gap-3.5 cursor-pointer flex-1 min-w-0"
                 >
-                  <img
+                  <Image
                     src={item.posterUrl}
                     alt={item.title}
+                    width={48}
+                    height={64}
                     className="h-16 w-12 rounded-lg object-cover bg-slate-900 border border-slate-800 shrink-0"
                   />
                   <div className="min-w-0">

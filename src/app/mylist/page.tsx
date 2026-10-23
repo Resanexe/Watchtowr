@@ -1,27 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { WatchtowrCard } from '@/components/WatchtowrCard';
-import { getStoredMyList, updateMyListItem } from '@/lib/storage';
+import { STORAGE_KEYS, updateMyListItem } from '@/lib/storage';
 import { MyListItem, MediaCategory, MediaItem } from '@/types';
+import { useHydrated } from '@/lib/use-hydrated';
+import { useStoredValue } from '@/lib/use-stored-value';
 
 export default function MyListPage() {
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
   const [activeTab, setActiveTab] = useState<'all' | MediaCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [myList, setMyList] = useState<MyListItem[]>([]);
-
-  useEffect(() => {
-    setMounted(true);
-    setMyList(getStoredMyList());
-  }, []);
+  const myList = useStoredValue(STORAGE_KEYS.myList, EMPTY_MY_LIST);
 
   const handleRemove = (mediaId: string) => {
-    const updated = updateMyListItem(mediaId, 'movie', '', '', null);
-    setMyList(updated);
+    updateMyListItem(mediaId, 'movie', '', '', null);
   };
 
   const filteredItems = myList.filter(item => {
@@ -32,7 +28,7 @@ export default function MyListPage() {
     return true;
   });
 
-  if (!mounted) {
+  if (!hydrated) {
     return (
       <div
         className="min-h-screen bg-[#0B0D11] text-zinc-100 flex flex-col font-sans"
@@ -137,3 +133,5 @@ export default function MyListPage() {
     </div>
   );
 }
+
+const EMPTY_MY_LIST: MyListItem[] = [];

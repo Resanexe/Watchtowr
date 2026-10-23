@@ -1,17 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import {
-  X,
-  SlidersHorizontal,
-  Compass,
-  Clock,
-  Sparkles,
-  RotateCcw,
-  Trash2,
-  Check,
-  ShieldAlert,
-} from 'lucide-react';
+import { X, SlidersHorizontal, Compass, RotateCcw, Trash2, Check } from 'lucide-react';
 import { UserPreferences, MediaCategory, PresetMood } from '@/types';
 import { ALL_PRESET_MOODS } from '@/lib/mock-data';
 
@@ -53,10 +43,10 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
   onDeleteAccount,
   isGuest,
 }) => {
-  if (!isOpen) return null;
-
   const [form, setForm] = useState<UserPreferences>({ ...preferences });
   const [activeTab, setActiveTab] = useState<'preferences' | 'privacy'>('preferences');
+
+  if (!isOpen) return null;
 
   const toggleCategory = (cat: MediaCategory) => {
     const exists = form.preferredCategories.includes(cat);
@@ -259,6 +249,24 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   );
                 })}
               </div>
+            </div>
+
+            {/* Discovery Level (Serendipity vs Exact Match) */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <label htmlFor="minimum-rating" className="text-xs font-bold text-slate-200">Minimum External Rating</label>
+                <span className="text-xs text-amber-400 font-bold">{form.minRating.toFixed(1)} / 5</span>
+              </div>
+              <input
+                id="minimum-rating"
+                type="range"
+                min="0"
+                max="5"
+                step="0.5"
+                value={form.minRating}
+                onChange={e => setForm({ ...form, minRating: Number(e.target.value) })}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
             </div>
 
             {/* Discovery Level (Serendipity vs Exact Match) */}

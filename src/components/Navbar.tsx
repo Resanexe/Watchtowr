@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Search } from 'lucide-react';
@@ -98,9 +99,11 @@ export const Navbar: React.FC<NavbarProps> = ({ searchQuery = '', onSearchChange
 
           {/* Profile Avatar */}
           <Link href="/mylist" className="shrink-0" title="Profile & Saved Lists">
-            <img
+            <Image
               src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80"
               alt="User Avatar"
+              width={32}
+              height={32}
               className="h-8 w-8 rounded-full object-cover border border-amber-600/60 ring-1 ring-amber-500/30 hover:scale-105 transition-transform"
             />
           </Link>

@@ -1,19 +1,43 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { Gamepad2, Sparkles, Film, Tv, Loader2 } from 'lucide-react';
+import Image from 'next/image';
+import { Gamepad2, Sparkles, Film, Tv, SlidersHorizontal } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { WatchtowrCard } from '@/components/WatchtowrCard';
 import { fetchLiveCategoryFeed, CategoryFeed } from '@/lib/api-service';
-import { MediaCategory, MediaItem } from '@/types';
+import { MediaCategory, MediaItem, FeedbackType } from '@/types';
+import { scoreAndRankRecommendations } from '@/lib/recommendation-engine';
+import { useHydrated } from '@/lib/use-hydrated';
+import { useStoredValue } from '@/lib/use-stored-value';
+import {
+  addFeedbackSignal,
+  DEFAULT_PREFERENCES,
+  getStoredFeedback,
+  getStoredMyList,
+  getStoredReviews,
+  saveStoredPreferences,
+  normalizePreferences,
+  resetRecommendationHistory,
+  deleteAccountData,
+  STORAGE_KEYS,
+} from '@/lib/storage';
+import { CustomizeModal } from '@/components/CustomizeModal';
 
 export default function HomePage() {
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
   const [activeCategory, setActiveCategory] = useState<MediaCategory>('movie');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedCategory, setLoadedCategory] = useState<MediaCategory | null>(null);
+  const isLoading = loadedCategory !== activeCategory;
+  const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+  const storedPreferences = useStoredValue(STORAGE_KEYS.preferences, DEFAULT_PREFERENCES);
+  const preferences = useMemo(() => normalizePreferences(storedPreferences), [storedPreferences]);
+  const myList = useStoredValue(STORAGE_KEYS.myList, EMPTY_MY_LIST);
+  const reviews = useStoredValue(STORAGE_KEYS.reviews, EMPTY_REVIEWS);
+  const feedback = useStoredValue(STORAGE_KEYS.feedback, EMPTY_FEEDBACK);
   const [feed, setFeed] = useState<CategoryFeed>({
     picksForYou: [],
     trendingNow: [],
@@ -21,31 +45,38 @@ export default function HomePage() {
     recentlyAdded: [],
   });
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   // Fetch live API titles whenever active category changes
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
-
     fetchLiveCategoryFeed(activeCategory)
       .then(data => {
         if (isMounted) {
           setFeed(data);
-          setIsLoading(false);
+          setLoadedCategory(activeCategory);
         }
       })
       .catch(err => {
         console.error('Failed to load category feed from APIs:', err);
-        if (isMounted) setIsLoading(false);
+        if (isMounted) setLoadedCategory(activeCategory);
       });
 
     return () => {
       isMounted = false;
     };
   }, [activeCategory]);
+
+  const rankedItems = useMemo(() => {
+    const unique = [...new Map(
+      [...feed.picksForYou, ...feed.topRated].map(item => [item.id, item])
+    ).values()];
+    return scoreAndRankRecommendations(unique, preferences, myList, reviews, feedback);
+  }, [feed, preferences, myList, reviews, feedback]);
+
+  const handleFeedback = (mediaId: string, type: FeedbackType, genres: string[]) => {
+    const item = [...feed.picksForYou, ...feed.trendingNow, ...feed.topRated, ...feed.recentlyAdded]
+      .find(candidate => candidate.id === mediaId);
+    if (item) addFeedbackSignal(mediaId, item.category, type, genres);
+  };
 
   // Hero Backdrop depending on active category
   const getHeroBackdrop = () => {
@@ -62,9 +93,11 @@ export default function HomePage() {
   };
 
   const filterBySearch = (items: MediaItem[]) => {
-    if (!searchQuery.trim()) return items;
+    const excludedIds = new Set(feedback.filter(signal => signal.type === 'not_interested').map(signal => signal.mediaId));
+    const visible = items.filter(item => !excludedIds.has(item.id));
+    if (!searchQuery.trim()) return visible;
     const q = searchQuery.toLowerCase();
-    return items.filter(
+    return visible.filter(
       i => i.title.toLowerCase().includes(q) || i.genres.some(g => g.toLowerCase().includes(q))
     );
   };
@@ -103,7 +136,7 @@ export default function HomePage() {
       return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.slice(0, 6).map(item => (
-            <WatchtowrCard key={item.id} item={item} variant="horizontal-banner" />
+            <WatchtowrCard key={item.id} item={item} variant="horizontal-banner" onFeedback={handleFeedback} />
           ))}
         </div>
       );
@@ -112,13 +145,13 @@ export default function HomePage() {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {filtered.slice(0, 6).map(item => (
-          <WatchtowrCard key={item.id} item={item} variant="vertical" />
+          <WatchtowrCard key={item.id} item={item} variant="vertical" onFeedback={handleFeedback} />
         ))}
       </div>
     );
   };
 
-  if (!mounted) {
+  if (!hydrated) {
     return (
       <div
         className="min-h-screen bg-[#0B0D11] text-zinc-100 flex flex-col font-sans"
@@ -142,10 +175,13 @@ export default function HomePage() {
       <main className="flex-1">
         {/* Hero Section */}
         <div className="relative w-full h-[380px] sm:h-[420px] flex items-center justify-center overflow-hidden border-b border-zinc-800/60">
-          <img
+          <Image
             src={getHeroBackdrop()}
             alt="Hero Backdrop"
-            className="absolute inset-0 h-full w-full object-cover object-center filter brightness-40 transition-all duration-700 ease-in-out"
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-center filter brightness-40 transition-all duration-700 ease-in-out"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D11] via-[#0B0D11]/60 to-transparent" />
           <div className="absolute inset-0 bg-radial-gradient from-transparent to-[#0B0D11]/70" />
@@ -185,6 +221,15 @@ export default function HomePage() {
                 );
               })}
             </div>
+            <button
+              onClick={() => setIsCustomizeOpen(true)}
+              className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/40 px-4 py-2 text-xs font-semibold text-zinc-200 hover:border-rose-500 hover:text-white"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" /> Customize recommendations
+            </button>
+            {feed.isFallback && !isLoading && (
+              <p className="mt-2 text-xs text-amber-200">Showing offline sample titles because live providers are unavailable.</p>
+            )}
           </div>
         </div>
 
@@ -206,7 +251,7 @@ export default function HomePage() {
                 See All
               </Link>
             </div>
-            {renderCardGrid(feed.picksForYou, 'vertical')}
+            {renderCardGrid(rankedItems.slice(0, 12), 'vertical')}
           </section>
 
           {/* Section 2: Trending Now */}
@@ -265,6 +310,20 @@ export default function HomePage() {
 
       {/* Global Footer */}
       <Footer />
+      <CustomizeModal
+        key={JSON.stringify(preferences)}
+        isOpen={isCustomizeOpen}
+        onClose={() => setIsCustomizeOpen(false)}
+        preferences={preferences}
+        onSavePreferences={saveStoredPreferences}
+        onResetHistory={resetRecommendationHistory}
+        onDeleteAccount={deleteAccountData}
+        isGuest={false}
+      />
     </div>
   );
 }
+
+const EMPTY_MY_LIST: ReturnType<typeof getStoredMyList> = [];
+const EMPTY_REVIEWS: ReturnType<typeof getStoredReviews> = [];
+const EMPTY_FEEDBACK: ReturnType<typeof getStoredFeedback> = [];

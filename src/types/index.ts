@@ -25,7 +25,7 @@ export interface MediaItem {
   bannerUrl?: string;
   releaseDate?: string; // YYYY-MM-DD
   releaseYear: number;
-  externalRating: number; // 0.0 to 10.0 scale
+  externalRating: number; // 0.0 to 5.0 scale
   externalVoteCount?: number;
   genres: string[];
   moods: PresetMood[];
@@ -53,7 +53,7 @@ export interface UserPreferences {
   preferredGenres: string[];
   dislikedGenres: string[];
   preferredMoods: PresetMood[];
-  minRating: number;                    // 1.0 to 10.0
+  minRating: number;                    // 0.0 to 5.0
   maxAvailableTimeMinutes?: number;     // e.g. 30, 60, 120, or undefined for no limit
   discoveryLevel: number;               // 0.0 (strict matching) to 1.0 (high serendipity / variety)
 }

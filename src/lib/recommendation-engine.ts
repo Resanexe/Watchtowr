@@ -145,7 +145,9 @@ export function scoreAndRankRecommendations(
     .filter(f => f.type === 'show_less_like_this')
     .forEach(f => f.reasonGenres.forEach(rg => penalizedGenres.add(rg.toLowerCase())));
 
-  const scoredItems: ScoredMediaItem[] = items.map(item => {
+  const scoredItems: ScoredMediaItem[] = items
+    .filter(item => item.externalRating >= preferences.minRating)
+    .map(item => {
     let score = 50; // base score
     const explanations: string[] = [];
 
@@ -220,7 +222,7 @@ export function scoreAndRankRecommendations(
     }
 
     // --- Signal 7: External Rating & Quality ---
-    score += (item.externalRating / 10) * 15;
+    score += (item.externalRating / 5) * 15;
 
     // --- Signal 8: Available Time Constraint ---
     if (preferences.maxAvailableTimeMinutes) {
@@ -246,7 +248,7 @@ export function scoreAndRankRecommendations(
       explanation,
       matchedSignals: explanations,
     };
-  });
+    });
 
   return scoredItems.sort((a, b) => b.score - a.score);
 }

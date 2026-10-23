@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import {
   Star,
   Clock,
@@ -87,11 +88,12 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         onClick={() => onSelectTitle(item)}
         className="relative aspect-[16/10] w-full overflow-hidden bg-slate-950 cursor-pointer"
       >
-        <img
+        <Image
           src={item.posterUrl}
           alt={item.title}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          loading="lazy"
+          fill
+          sizes="(max-width: 768px) 50vw, 25vw"
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
 

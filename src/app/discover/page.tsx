@@ -1,98 +1,80 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { WatchtowrCard } from '@/components/WatchtowrCard';
-import { fetchTrendingMovies } from '@/lib/tmdb';
-import { fetchTrendingTV } from '@/lib/tmdb';
-import { fetchTrendingAnime } from '@/lib/anilist';
-import { fetchTrendingGames } from '@/lib/rawg';
-import { MediaCategory, MediaItem } from '@/types';
+import { fetchLiveCatalog } from '@/lib/api-service';
+import { MediaCategory, MediaItem, PresetMood, UserFeedback } from '@/types';
 import { ChevronDown, Loader2 } from 'lucide-react';
+import { ALL_PRESET_MOODS } from '@/lib/mock-data';
+import { useHydrated } from '@/lib/use-hydrated';
+import { addFeedbackSignal, STORAGE_KEYS } from '@/lib/storage';
+import { useStoredValue } from '@/lib/use-stored-value';
+import { calculateTitleTimeMinutes } from '@/lib/recommendation-engine';
+
+interface CategoryFilters {
+  title: string;
+  genres: string[];
+  moods: PresetMood[];
+  runtimeOptions?: string[];
+  episodeLengths?: string[];
+  gameLengths?: string[];
+  platforms?: string[];
+}
 
 function DiscoverContent() {
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialCat = (searchParams.get('cat') as MediaCategory) || 'movie';
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const [activeCategory, setActiveCategory] = useState<MediaCategory>(
-    ['movie', 'tv', 'anime', 'game'].includes(initialCat) ? initialCat : 'movie'
-  );
+  const activeCategory: MediaCategory = ['movie', 'tv', 'anime', 'game'].includes(initialCat) ? initialCat : 'movie';
   const [catalog, setCatalog] = useState<MediaItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedCategory, setLoadedCategory] = useState<MediaCategory | null>(null);
+  const isLoading = loadedCategory !== activeCategory;
+  const [isFallback, setIsFallback] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [page, setPage] = useState(2);
   const [hasMore, setHasMore] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [selectedMoods, setSelectedMoods] = useState<string[]>([]);
+  const [selectedMoods, setSelectedMoods] = useState<PresetMood[]>([]);
   const [selectedRuntime, setSelectedRuntime] = useState<string | null>(null);
+  const [maxTimeMinutes, setMaxTimeMinutes] = useState<number | undefined>();
   const [selectedRating, setSelectedRating] = useState<string>('Any');
-  const [sortBy] = useState('Relevance');
+  const [selectedPlatform, setSelectedPlatform] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [sortBy, setSortBy] = useState('Relevance');
+  const feedback = useStoredValue(STORAGE_KEYS.feedback, EMPTY_FEEDBACK);
 
   // Load live data from the API corresponding to activeCategory (Loads 2 full pages on initial load)
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
-    setPage(2);
-    setHasMore(true);
-
     async function loadCategoryData() {
-      let items: MediaItem[] = [];
       try {
-        switch (activeCategory) {
-          case 'movie': {
-            const [p1, p2] = await Promise.all([
-              fetchTrendingMovies(1, 20),
-              fetchTrendingMovies(2, 20),
-            ]);
-            items = [...p1, ...p2];
-            break;
-          }
-          case 'tv': {
-            const [p1, p2] = await Promise.all([
-              fetchTrendingTV(1, 20),
-              fetchTrendingTV(2, 20),
-            ]);
-            items = [...p1, ...p2];
-            break;
-          }
-          case 'anime': {
-            const [p1, p2] = await Promise.all([
-              fetchTrendingAnime(1, 24),
-              fetchTrendingAnime(2, 24),
-            ]);
-            items = [...p1, ...p2];
-            break;
-          }
-          case 'game': {
-            const [p1, p2] = await Promise.all([
-              fetchTrendingGames(1, 24),
-              fetchTrendingGames(2, 24),
-            ]);
-            items = [...p1, ...p2];
-            break;
-          }
-        }
+        const [p1, p2] = await Promise.all([
+          fetchLiveCatalog(activeCategory, 1),
+          fetchLiveCatalog(activeCategory, 2),
+        ]);
         if (isMounted) {
           const seen = new Set<string>();
-          const uniqueItems = items.filter(it => {
+          const uniqueItems = [...p1.items, ...p2.items].filter(it => {
             if (seen.has(it.id)) return false;
             seen.add(it.id);
             return true;
           });
           setCatalog(uniqueItems);
-          setIsLoading(false);
+          setIsFallback(p1.isFallback || p2.isFallback);
+          setHasMore(!(p1.isFallback || p2.isFallback));
+          setLoadedCategory(activeCategory);
         }
       } catch (e) {
         console.error('Discover live fetch error:', e);
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+          setCatalog([]);
+          setLoadedCategory(activeCategory);
+        }
       }
     }
 
@@ -109,23 +91,9 @@ function DiscoverContent() {
     const nextPage = page + 1;
 
     try {
-      let newItems: MediaItem[] = [];
-      switch (activeCategory) {
-        case 'movie':
-          newItems = await fetchTrendingMovies(nextPage, 20);
-          break;
-        case 'tv':
-          newItems = await fetchTrendingTV(nextPage, 20);
-          break;
-        case 'anime':
-          newItems = await fetchTrendingAnime(nextPage, 24);
-          break;
-        case 'game':
-          newItems = await fetchTrendingGames(nextPage, 24);
-          break;
-      }
+      const { items: newItems, isFallback: usingFallback } = await fetchLiveCatalog(activeCategory, nextPage);
 
-      if (newItems.length === 0) {
+      if (newItems.length === 0 || usingFallback) {
         setHasMore(false);
       } else {
         setCatalog(prev => {
@@ -143,53 +111,41 @@ function DiscoverContent() {
   };
 
   // Filter definition matrix per category (matching the user's design screenshots)
-  const categoryFilters = useMemo(() => {
+  const categoryFilters = useMemo<CategoryFilters>(() => {
     switch (activeCategory) {
       case 'movie':
         return {
           title: 'Filters (Movies)',
           genres: ['Action', 'Romance', 'Thriller', 'Horror', 'Comedy', 'Sci-Fi', 'Documentary', 'Animation', 'Drama', 'Fantasy'],
-          moods: ['Relaxed', 'Emotional', 'Thrilling', 'Feel-Good'],
-          runtimeOptions: ['Under 1h30m', '1h30m–2hrs', 'Over 2hrs'],
-          platforms: ['Netflix', 'Disney+', 'Prime Video', 'Cinema'],
-          ratings: ['4.5+', '4.0+', '3.5+', 'Any'],
-          decades: ['2020s', '2010s', '2000s', 'Classic'],
+          moods: ALL_PRESET_MOODS,
+          runtimeOptions: ['Under 1h30m', '1h30m to 2h', 'Over 2h'],
         };
       case 'tv':
         return {
           title: 'Filters (TV Shows)',
           genres: ['Drama', 'Mystery', 'Thriller', 'Sci-Fi', 'Crime', 'Fantasy', 'Comedy', 'Romance', 'Reality', 'Documentary'],
-          moods: ['Relaxed', 'Gripping', 'Feel-Good', 'Dark'],
-          episodeLengths: ['Under 20min', '20–45min', '45min+'],
-          episodeCounts: ['Mini 1–6', 'Short 7–13', 'Medium 14–30', 'Long 30+'],
-          platforms: ['Netflix', 'Disney+', 'HBO', 'Prime Video'],
-          ratings: ['4.5+', '4.0+', '3.5+', 'Any'],
-          networks: ['HBO', 'AMC', 'FX', 'Apple TV+', 'Showtime'],
+          moods: ALL_PRESET_MOODS,
+          episodeLengths: ['Under 20min', '20 to 45min', '45min+'],
         };
       case 'anime':
         return {
           title: 'Filters (Anime)',
           genres: ['Action', 'Romance', 'Mystery', 'Isekai', 'Fantasy', 'Slice of Life', 'Horror', 'Sci-Fi', 'Sports', 'Comedy'],
-          moods: ['Relaxed', 'Emotional', 'Hype', 'Chill'],
-          episodeCounts: ['Under 13', '13–26', '26–50', '50–100', '100+'],
-          ratings: ['4.5+', '4.0+', '3.5+', 'Any'],
-          studios: ['MAPPA', 'Ufotable', 'Bones', 'Wit Studio', 'A-1 Pictures', 'Madhouse'],
-          statuses: ['Completed', 'Ongoing'],
+          moods: ALL_PRESET_MOODS,
+          episodeLengths: ['Under 20min', '20 to 45min', '45min+'],
         };
       case 'game':
         return {
           title: 'Filters (Games)',
           genres: ['Action', 'RPG', 'Mystery', 'Horror', 'Puzzle', 'Adventure', 'Strategy', 'Simulation', 'Fighting', 'Sports'],
-          moods: ['Relaxed', 'Intense', 'Competitive', 'Chill'],
-          gameLengths: ['Under 5hrs', '5–15hrs', '15–30hrs', '30–60hrs', '60hrs+'],
-          platforms: ['PC', 'PS5', 'Xbox', 'Nintendo Switch', 'Mobile'],
-          ratings: ['4.5+', '4.0+', '3.5+', 'Any'],
-          artStyles: ['Pixel Art', 'Realistic', 'Anime-style', 'Stylized', 'Low-poly'],
+          moods: ALL_PRESET_MOODS,
+          gameLengths: ['Under 5hrs', '5 to 15hrs', '15 to 30hrs', '30 to 60hrs', '60hrs+'],
+          platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S', 'Nintendo Switch'],
         };
     }
   }, [activeCategory]);
 
-  const toggleFilter = (list: string[], setList: (v: string[]) => void, item: string) => {
+  const toggleFilter = <T extends string>(list: T[], setList: (v: T[]) => void, item: T) => {
     if (list.includes(item)) {
       setList(list.filter(x => x !== item));
     } else {
@@ -199,30 +155,63 @@ function DiscoverContent() {
 
   // Filter items matching active category and checkboxes
   const filteredMatches = useMemo(() => {
-    return catalog.filter(item => {
-      if (searchQuery.trim() !== '') {
+    const excludedIds = new Set(feedback.filter(signal => signal.type === 'not_interested').map(signal => signal.mediaId));
+    const filtered = catalog.filter(item => {
+      if (excludedIds.has(item.id)) return false;
+      if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchTitle = item.title.toLowerCase().includes(q);
-        const matchGenre = item.genres.some(g => g.toLowerCase().includes(q));
-        if (!matchTitle && !matchGenre) return false;
+        if (!item.title.toLowerCase().includes(q)
+          && !item.synopsis.toLowerCase().includes(q)
+          && !(item.developerOrDirector || '').toLowerCase().includes(q)
+          && !item.genres.some(genre => genre.toLowerCase().includes(q))) return false;
       }
-
-      if (selectedGenres.length > 0) {
-        const hasGenre = selectedGenres.some(g =>
-          item.genres.some(itemG => itemG.toLowerCase().includes(g.toLowerCase()))
-        );
-        if (!hasGenre) return false;
+      if (selectedGenres.length && !selectedGenres.some(genre =>
+        item.genres.some(itemGenre => itemGenre.toLowerCase().includes(genre.toLowerCase())))) return false;
+      if (selectedMoods.length && !selectedMoods.some(mood => item.moods.includes(mood))) return false;
+      if (selectedPlatform && !item.gamePlatforms?.some(platform =>
+        platform.toLowerCase().includes(selectedPlatform.toLowerCase()))) return false;
+      if (selectedStatus && item.seriesStatus !== selectedStatus) return false;
+      if (maxTimeMinutes !== undefined) {
+        const itemTime = calculateTitleTimeMinutes(item);
+        if (itemTime === undefined || itemTime > maxTimeMinutes) return false;
       }
+      if (selectedRating !== 'Any' && item.externalRating < Number(selectedRating.replace('+', ''))) return false;
 
-      if (selectedRating === '4.5+' && item.externalRating < 4.5) return false;
-      if (selectedRating === '4.0+' && item.externalRating < 4.0) return false;
-      if (selectedRating === '3.5+' && item.externalRating < 3.5) return false;
-
+      const minutes = item.category === 'game'
+        ? item.gamePlaytimeHours === undefined ? undefined : item.gamePlaytimeHours * 60
+        : item.runtimeMinutes;
+      if (selectedRuntime) {
+        if (minutes === undefined) return false;
+        const matchesMovie = item.category === 'movie'
+          && (selectedRuntime === 'Under 1h30m' ? minutes < 90
+            : selectedRuntime === '1h30m to 2h' ? minutes >= 90 && minutes <= 120 : minutes > 120);
+        const matchesGame = item.category === 'game'
+          && (selectedRuntime === 'Under 5hrs' ? minutes < 300
+            : selectedRuntime === '5 to 15hrs' ? minutes >= 300 && minutes < 900
+              : selectedRuntime === '15 to 30hrs' ? minutes >= 900 && minutes < 1800
+                : selectedRuntime === '30 to 60hrs' ? minutes >= 1800 && minutes < 3600 : minutes >= 3600);
+        const matchesEpisode = (item.category === 'tv' || item.category === 'anime')
+          && (selectedRuntime === 'Under 20min' ? minutes < 20
+            : selectedRuntime === '20 to 45min' ? minutes >= 20 && minutes <= 45 : minutes > 45);
+        if (!matchesMovie && !matchesGame && !matchesEpisode) return false;
+      }
       return true;
     });
-  }, [catalog, searchQuery, selectedGenres, selectedRating]);
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'Rating') return b.externalRating - a.externalRating;
+      if (sortBy === 'Newest') return b.releaseYear - a.releaseYear;
+      if (sortBy === 'Title') return a.title.localeCompare(b.title);
+      if (sortBy === 'Shortest') {
+        const runtime = (item: MediaItem) => item.category === 'game'
+          ? (item.gamePlaytimeHours ?? Number.POSITIVE_INFINITY) * 60
+          : item.runtimeMinutes ?? Number.POSITIVE_INFINITY;
+        return runtime(a) - runtime(b);
+      }
+      return 0;
+    });
+  }, [catalog, feedback, maxTimeMinutes, searchQuery, selectedGenres, selectedMoods, selectedPlatform, selectedRating, selectedRuntime, selectedStatus, sortBy]);
 
-  if (!mounted) {
+  if (!hydrated) {
     return (
       <div
         className="min-h-screen bg-[#0B0D11] text-zinc-100 flex flex-col font-sans"
@@ -257,8 +246,15 @@ function DiscoverContent() {
               <button
                 key={cat.id}
                 onClick={() => {
-                  setActiveCategory(cat.id);
+                  router.replace(`/discover?cat=${cat.id}`);
+                  setPage(2);
+                  setHasMore(true);
                   setSelectedGenres([]);
+                  setSelectedMoods([]);
+                  setSelectedRuntime(null);
+                  setMaxTimeMinutes(undefined);
+                  setSelectedPlatform('');
+                  setSelectedStatus('');
                 }}
                 className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${
                   isActive
@@ -281,6 +277,23 @@ function DiscoverContent() {
             <h2 className="text-sm font-bold text-white tracking-tight">
               {categoryFilters.title}
             </h2>
+
+            <div className="space-y-2 pt-2 border-t border-zinc-800/60">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">AVAILABLE TIME LIMIT</h3>
+              <select
+                value={maxTimeMinutes ?? ''}
+                onChange={event => setMaxTimeMinutes(event.target.value ? Number(event.target.value) : undefined)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200"
+              >
+                <option value="">No limit</option>
+                <option value="30">Up to 30 minutes</option>
+                <option value="60">Up to 1 hour</option>
+                <option value="120">Up to 2 hours</option>
+                <option value="180">Up to 3 hours</option>
+                <option value="600">Up to 10 hours</option>
+              </select>
+              <p className="text-[10px] text-zinc-500">Uses episode length, movie runtime, or estimated game playtime. Unknown durations are excluded.</p>
+            </div>
 
             {/* GENRE */}
             <div className="space-y-2">
@@ -361,7 +374,7 @@ function DiscoverContent() {
               </div>
             )}
 
-            {activeCategory === 'tv' && categoryFilters.episodeLengths && (
+            {(activeCategory === 'tv' || activeCategory === 'anime') && categoryFilters.episodeLengths && (
               <div className="space-y-2 pt-2 border-t border-zinc-800/60">
                 <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
                   EPISODE LENGTH
@@ -374,6 +387,8 @@ function DiscoverContent() {
                     >
                       <input
                         type="checkbox"
+                        checked={selectedRuntime === opt}
+                        onChange={() => setSelectedRuntime(selectedRuntime === opt ? null : opt)}
                         className="h-3.5 w-3.5 rounded border-zinc-700 bg-zinc-900 text-[#BE123C] focus:ring-0 accent-[#BE123C] cursor-pointer"
                       />
                       <span>{opt}</span>
@@ -396,12 +411,35 @@ function DiscoverContent() {
                     >
                       <input
                         type="checkbox"
+                        checked={selectedRuntime === opt}
+                        onChange={() => setSelectedRuntime(selectedRuntime === opt ? null : opt)}
                         className="h-3.5 w-3.5 rounded border-zinc-700 bg-zinc-900 text-[#BE123C] focus:ring-0 accent-[#BE123C] cursor-pointer"
                       />
                       <span>{opt}</span>
                     </label>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {activeCategory === 'game' && categoryFilters.platforms && (
+              <div className="space-y-2 pt-2 border-t border-zinc-800/60">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">PLATFORM</h3>
+                <select value={selectedPlatform} onChange={event => setSelectedPlatform(event.target.value)} className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200">
+                  <option value="">All platforms</option>
+                  {categoryFilters.platforms.map(platform => <option key={platform} value={platform}>{platform}</option>)}
+                </select>
+              </div>
+            )}
+
+            {(activeCategory === 'tv' || activeCategory === 'anime') && (
+              <div className="space-y-2 pt-2 border-t border-zinc-800/60">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">SERIES STATUS</h3>
+                <select value={selectedStatus} onChange={event => setSelectedStatus(event.target.value)} className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200">
+                  <option value="">Any status</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Ongoing">Ongoing</option>
+                </select>
               </div>
             )}
 
@@ -436,11 +474,16 @@ function DiscoverContent() {
               <h3 className="text-sm font-bold text-white">
                 Showing {filteredMatches.length} matches
               </h3>
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400 cursor-pointer hover:text-white">
-                <span>Sorted by {sortBy}</span>
-                <ChevronDown className="h-3.5 w-3.5" />
-              </div>
+              <label className="flex items-center gap-1.5 text-xs text-zinc-400">
+                Sorted by
+                <select value={sortBy} onChange={event => setSortBy(event.target.value)} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200">
+                  {['Relevance', 'Rating', 'Newest', 'Title', 'Shortest'].map(value => <option key={value}>{value}</option>)}
+                </select>
+              </label>
             </div>
+            {isFallback && !isLoading && (
+              <p className="mb-4 text-xs text-amber-200">Live providers are unavailable. Showing offline sample data.</p>
+            )}
 
             {isLoading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
@@ -465,6 +508,10 @@ function DiscoverContent() {
                     setSelectedGenres([]);
                     setSelectedMoods([]);
                     setSelectedRating('Any');
+                    setSelectedRuntime(null);
+                    setMaxTimeMinutes(undefined);
+                    setSelectedPlatform('');
+                    setSelectedStatus('');
                   }}
                   className="mt-3 text-xs text-rose-500 hover:underline"
                 >
@@ -475,7 +522,12 @@ function DiscoverContent() {
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
                   {filteredMatches.map(item => (
-                    <WatchtowrCard key={item.id} item={item} variant="vertical" />
+                    <WatchtowrCard
+                      key={item.id}
+                      item={item}
+                      variant="vertical"
+                      onFeedback={(id, type, genres) => addFeedbackSignal(id, item.category, type, genres)}
+                    />
                   ))}
                 </div>
 
@@ -500,7 +552,7 @@ function DiscoverContent() {
                       )}
                     </button>
                     <p className="mt-2 text-[11px] text-zinc-500">
-                      Showing {filteredMatches.length} titles from live API
+                      {isFallback ? 'Offline sample catalog' : `Showing ${filteredMatches.length} titles from live API`}
                     </p>
                   </div>
                 )}
@@ -529,3 +581,5 @@ export default function DiscoverPage() {
     </Suspense>
   );
 }
+
+const EMPTY_FEEDBACK: UserFeedback[] = [];

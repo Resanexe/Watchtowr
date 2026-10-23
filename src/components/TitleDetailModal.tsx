@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import {
   X,
   Star,
@@ -10,15 +11,11 @@ import {
   Film,
   Tv,
   Sparkles,
-  Bookmark,
-  BookmarkCheck,
   Trash2,
   Send,
-  Layers,
-  Monitor,
 } from 'lucide-react';
 import { ScoredMediaItem, MyListStatus, UserReview, MediaItem } from '@/types';
-import { formatDuration, formatCategory } from '@/lib/utils';
+import { formatCategory } from '@/lib/utils';
 
 interface TitleDetailModalProps {
   item: ScoredMediaItem | null;
@@ -45,11 +42,11 @@ export const TitleDetailModal: React.FC<TitleDetailModalProps> = ({
   onSelectSimilar,
   isGuest,
 }) => {
-  if (!item) return null;
-
   const [ratingInput, setRatingInput] = useState<number>(userReview?.rating || 5);
   const [reviewInput, setReviewInput] = useState<string>(userReview?.reviewText || '');
   const [isEditingReview, setIsEditingReview] = useState<boolean>(!userReview);
+
+  if (!item) return null;
 
   const handleSubmitReview = (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,18 +81,22 @@ export const TitleDetailModal: React.FC<TitleDetailModalProps> = ({
 
         {/* Hero Banner / Poster Header */}
         <div className="relative h-48 sm:h-64 w-full bg-slate-950">
-          <img
+          <Image
             src={item.bannerUrl || item.posterUrl}
             alt={item.title}
-            className="h-full w-full object-cover object-center opacity-40 blur-xs"
+            fill
+            sizes="(max-width: 768px) 100vw, 75vw"
+            className="object-cover object-center opacity-40 blur-xs"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/60 to-transparent" />
 
           {/* Floating poster and main info */}
           <div className="absolute bottom-4 left-6 right-6 flex items-end gap-5">
-            <img
+            <Image
               src={item.posterUrl}
               alt={item.title}
+              width={96}
+              height={144}
               className="h-28 w-20 sm:h-36 sm:w-24 shrink-0 rounded-xl object-cover shadow-2xl border border-slate-700"
             />
             <div className="flex-1 min-w-0">
@@ -106,7 +107,7 @@ export const TitleDetailModal: React.FC<TitleDetailModalProps> = ({
                 </span>
                 <span className="flex items-center gap-1 text-xs font-bold text-amber-400 bg-slate-950/80 px-2 py-0.5 rounded-md border border-amber-500/20">
                   <Star className="h-3.5 w-3.5 fill-amber-400" />
-                  {item.externalRating.toFixed(1)} / 10
+                  {item.externalRating.toFixed(1)} / 5
                 </span>
                 {item.releaseYear && (
                   <span className="flex items-center gap-1 text-xs text-slate-400">
@@ -363,11 +364,13 @@ export const TitleDetailModal: React.FC<TitleDetailModalProps> = ({
                     onClick={() => onSelectSimilar(sim)}
                     className="group cursor-pointer rounded-xl border border-slate-800 bg-slate-950 p-2 hover:border-slate-700 transition-colors"
                   >
-                    <div className="aspect-video w-full rounded-lg overflow-hidden bg-slate-900 mb-1.5">
-                      <img
+                  <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-slate-900 mb-1.5">
+                      <Image
                         src={sim.posterUrl}
                         alt={sim.title}
-                        className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                        fill
+                        sizes="(max-width: 640px) 50vw, 33vw"
+                        className="object-cover group-hover:scale-105 transition-transform"
                       />
                     </div>
                     <span className="text-xs font-bold text-slate-200 group-hover:text-indigo-400 line-clamp-1 block">

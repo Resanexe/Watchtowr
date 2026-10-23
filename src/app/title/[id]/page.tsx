@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   Star,
   Clock,
@@ -24,6 +25,7 @@ import {
   getStoredReviews,
   saveStoredReview,
 } from '@/lib/storage';
+import { useHydrated } from '@/lib/use-hydrated';
 
 interface TitlePageProps {
   params: Promise<{
@@ -32,17 +34,14 @@ interface TitlePageProps {
 }
 
 export default function TitleDetailPage({ params }: TitlePageProps) {
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
   const resolvedParams = use(params);
   const mediaId = resolvedParams.id;
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   const [item, setItem] = useState<MediaItem | null>(null);
   const [similarTitles, setSimilarTitles] = useState<MediaItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const isLoading = loadedId !== mediaId;
   const [isSaved, setIsSaved] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [userRating, setUserRating] = useState<number>(5);
@@ -68,14 +67,11 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
   // Fetch real title details from API by ID
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
-
     fetchLiveDetails(mediaId)
       .then(data => {
         if (!isMounted) return;
+        setItem(data);
         if (data) {
-          setItem(data);
-
           // ✅ Check if already saved in MyList (from localStorage)
           const myList = getStoredMyList();
           setIsSaved(myList.some(m => m.mediaId === mediaId));
@@ -105,11 +101,14 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
             }
           });
         }
-        setIsLoading(false);
+        setLoadedId(mediaId);
       })
       .catch(err => {
         console.error('Failed to fetch title detail:', err);
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+          setItem(null);
+          setLoadedId(mediaId);
+        }
       });
 
     return () => {
@@ -149,7 +148,7 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
     }
   };
 
-  if (!mounted || isLoading) {
+  if (!hydrated || isLoading) {
     return (
       <div
         className="min-h-screen bg-[#0B0D11] text-zinc-100 flex flex-col font-sans"
@@ -194,10 +193,13 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
       <main className="flex-1 pb-16">
         {/* Full-Width Cinematic Banner */}
         <div className="relative w-full h-[360px] sm:h-[460px] bg-black overflow-hidden border-b border-zinc-800/60">
-          <img
+          <Image
             src={item.bannerUrl || item.posterUrl}
             alt={item.title}
-            className="w-full h-full object-cover object-top opacity-60 filter brightness-90"
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-top opacity-60 filter brightness-90"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D11] via-[#0B0D11]/30 to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#0B0D11]/90 via-transparent to-transparent" />
@@ -350,9 +352,11 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <img
+                          <Image
                             src={rev.avatarUrl}
                             alt={rev.username}
+                            width={24}
+                            height={24}
                             className="h-6 w-6 rounded-full object-cover border border-zinc-700"
                           />
                           <span className="text-xs font-semibold text-zinc-200">{rev.username}</span>
@@ -419,9 +423,11 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
 
             {/* Selected Title Preview Box */}
             <div className="flex items-center gap-3.5 rounded-xl bg-[#0B0D11] p-3 border border-zinc-800/80">
-              <img
+              <Image
                 src={item.posterUrl}
                 alt={item.title}
+                width={44}
+                height={56}
                 className="h-14 w-11 rounded-lg object-cover border border-zinc-800 shrink-0"
               />
               <div className="min-w-0">
