@@ -9,7 +9,7 @@ import { ExtendedMediaItem } from '@/lib/mock-data';
 
 interface WatchtowrCardProps {
   item: ExtendedMediaItem;
-  variant?: 'vertical' | 'horizontal-banner' | 'mylist';
+  variant?: 'vertical' | 'home' | 'horizontal-banner' | 'mylist';
   onRemoveFromMyList?: (id: string) => void;
   onFeedback?: (id: string, type: FeedbackType, genres: string[]) => void;
 }
@@ -149,7 +149,7 @@ export const WatchtowrCard: React.FC<WatchtowrCardProps> = ({
 
   // Default Vertical Card (Used on Home & Discover - matching exact Figma style)
   return (
-    <div className="group relative flex flex-col rounded-2xl bg-[#13161F] p-2.5 border border-zinc-800/70 hover:border-zinc-700 transition-all shadow-md">
+    <div className={`group relative flex w-full flex-col rounded-2xl bg-[#13161F] p-2.5 border border-zinc-800/70 hover:border-zinc-700 transition-all shadow-md ${variant === 'home' ? 'mx-auto max-w-[210px]' : ''}`}>
       <Link href={`/title/${item.id}`} className="block">
         <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-zinc-900">
           <Image

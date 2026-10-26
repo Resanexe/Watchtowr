@@ -68,6 +68,22 @@ export async function fetchTrendingGames(page = 1, limit = 24): Promise<MediaIte
   }
 }
 
+export async function fetchRecentlyAddedGames(page = 1, limit = 24): Promise<MediaItem[]> {
+  if (!RAWG_API_KEY) return [];
+  try {
+    const res = await fetch(
+      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&page=${page}&page_size=${limit}&ordering=-released`,
+      { next: { revalidate: 3600 } }
+    );
+    if (!res.ok) throw new Error(`RAWG recent games error ${res.status}`);
+    const data = await res.json();
+    return ((data.results || []) as RAWGGame[]).map(formatRAWGGame);
+  } catch (err) {
+    console.error('RAWG recently added error:', err);
+    return [];
+  }
+}
+
 export async function fetchTopRatedGames(page = 1, limit = 24): Promise<MediaItem[]> {
   if (!RAWG_API_KEY) return [];
   try {

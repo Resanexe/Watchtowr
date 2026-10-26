@@ -171,6 +171,28 @@ export async function fetchTrendingMoviesPage(
   }
 }
 
+export async function fetchRecentlyAddedMovies(page = 1, limit = 20): Promise<MediaItem[]> {
+  if (!TMDB_API_KEY) return [];
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const params = new URLSearchParams({
+      api_key: TMDB_API_KEY,
+      page: String(page),
+      sort_by: 'primary_release_date.desc',
+      'primary_release_date.lte': today,
+    });
+    const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${params}`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) throw new Error(`TMDB recent movies error ${res.status}`);
+    const data = await res.json();
+    return ((data.results || []) as TMDBMovie[]).slice(0, limit).map(formatTMDBMovie);
+  } catch (err) {
+    console.error('TMDB recent movies error:', err);
+    return [];
+  }
+}
+
 export async function fetchTopRatedMovies(page = 1, limit = 20): Promise<MediaItem[]> {
   if (!TMDB_API_KEY) return [];
   try {
@@ -208,6 +230,29 @@ export async function fetchTrendingTVPage(
   } catch (err) {
     console.error('TMDB trending TV error:', err);
     return { items: [], available: false };
+  }
+}
+
+export async function fetchRecentlyAddedTV(page = 1, limit = 20): Promise<MediaItem[]> {
+  if (!TMDB_API_KEY) return [];
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const params = new URLSearchParams({
+      api_key: TMDB_API_KEY,
+      page: String(page),
+      sort_by: 'first_air_date.desc',
+      'first_air_date.lte': today,
+      include_null_first_air_dates: 'false',
+    });
+    const res = await fetch(`https://api.themoviedb.org/3/discover/tv?${params}`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) throw new Error(`TMDB recent TV error ${res.status}`);
+    const data = await res.json();
+    return ((data.results || []) as TMDBShow[]).slice(0, limit).map(formatTMDBTV);
+  } catch (err) {
+    console.error('TMDB recent TV error:', err);
+    return [];
   }
 }
 

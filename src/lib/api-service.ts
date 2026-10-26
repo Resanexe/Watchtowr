@@ -1,4 +1,4 @@
-import { FilterState, MediaCategory, MediaItem } from '@/types';
+import { CatalogSection, FilterState, MediaCategory, MediaItem } from '@/types';
 
 export interface CategoryFeed {
   picksForYou: MediaItem[];
@@ -34,6 +34,22 @@ export interface GlobalSearchPage {
   hasMore: boolean;
   page: number;
   unavailableCategories: MediaCategory[];
+}
+
+export interface HomepageSectionPage {
+  items: MediaItem[];
+  hasMore: boolean;
+  page: number;
+  isFallback: boolean;
+}
+
+export function fetchHomepageSection(
+  category: 'all' | MediaCategory,
+  section: CatalogSection,
+  page = 1,
+): Promise<HomepageSectionPage> {
+  const params = new URLSearchParams({ mode: 'section', category, section, page: String(page) });
+  return requestJSON<HomepageSectionPage>(`/api/catalog?${params.toString()}`);
 }
 
 export function fetchGlobalSearch(query: string, page = 1): Promise<GlobalSearchPage> {

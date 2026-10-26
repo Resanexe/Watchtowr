@@ -1,15 +1,15 @@
 import 'server-only';
-import { FilterState, MediaCategory, MediaItem } from '@/types';
+import { CatalogSection, FilterState, MediaCategory, MediaItem } from '@/types';
 import { filterCatalog, calculateTitleTimeMinutes, compareOptionalDurations } from '@/lib/recommendation-engine';
 import { WATCHTOWR_CATALOG } from '@/lib/mock-data';
 import {
-  fetchTrendingMovies, fetchTopRatedMovies, fetchTrendingTV, fetchTopRatedTV,
+  fetchTrendingMovies, fetchTopRatedMovies, fetchRecentlyAddedMovies, fetchTrendingTV, fetchTopRatedTV, fetchRecentlyAddedTV,
   fetchTMDBDetails, fetchTrendingMoviesPage, fetchTrendingTVPage,
   searchTMDBMovies, searchTMDBTV,
 } from '@/lib/tmdb';
 import type { TMDBRuntimeBounds } from '@/lib/tmdb-query';
-import { fetchTrendingAnime, fetchPopularAnime, fetchAnimeDetails, searchAnime } from '@/lib/anilist';
-import { fetchTrendingGames, fetchTopRatedGames, fetchGameDetails, searchGames } from '@/lib/rawg';
+import { fetchTrendingAnime, fetchTopRatedAnime, fetchRecentlyAddedAnime, fetchAnimeDetails, searchAnime } from '@/lib/anilist';
+import { fetchTrendingGames, fetchTopRatedGames, fetchRecentlyAddedGames, fetchGameDetails, searchGames } from '@/lib/rawg';
 
 export const MEDIA_CATEGORIES: MediaCategory[] = ['movie', 'tv', 'anime', 'game'];
 
@@ -52,6 +52,7 @@ async function getSearchProviderPage(category: MediaCategory, page: number, filt
 
 const DISCOVER_PAGE_SIZE = 48;
 const MAX_PROVIDER_PAGES_PER_REQUEST = 10;
+const HOMEPAGE_SECTION_PAGES_PER_BATCH = 3;
 
 export interface CatalogSearchPage {
   items: MediaItem[];
@@ -71,7 +72,9 @@ export interface GlobalCatalogSearchPage {
 export async function searchAllCatalogs(query: string, requestedPage = 1): Promise<GlobalCatalogSearchPage> {
   const normalizedQuery = query.trim().slice(0, 120);
   const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(500, requestedPage)) : 1;
-  if (!normalizedQuery) return { items: [], hasMore: false, page, unavailableCategories: [] };
+  if (!normalizedQuery || requestedPage > 500) {
+    return { items: [], hasMore: false, page, unavailableCategories: [] };
+  }
 
   const results = await Promise.all([
     searchTMDBMovies(normalizedQuery, page),
@@ -233,19 +236,20 @@ export async function getCatalog(category: MediaCategory, page = 1) {
 export async function getCategoryFeed(category: MediaCategory) {
   let trending: MediaItem[] = [];
   let top: MediaItem[] = [];
+  let recent: MediaItem[] = [];
 
   switch (category) {
     case 'movie':
-      [trending, top] = await Promise.all([fetchTrendingMovies(1, 24), fetchTopRatedMovies(1, 24)]);
+      [trending, top, recent] = await Promise.all([fetchTrendingMovies(1, 24), fetchTopRatedMovies(1, 24), fetchRecentlyAddedMovies(1, 24)]);
       break;
     case 'tv':
-      [trending, top] = await Promise.all([fetchTrendingTV(1, 24), fetchTopRatedTV(1, 24)]);
+      [trending, top, recent] = await Promise.all([fetchTrendingTV(1, 24), fetchTopRatedTV(1, 24), fetchRecentlyAddedTV(1, 24)]);
       break;
     case 'anime':
-      [trending, top] = await Promise.all([fetchTrendingAnime(1, 24), fetchPopularAnime(1, 24)]);
+      [trending, top, recent] = await Promise.all([fetchTrendingAnime(1, 24), fetchTopRatedAnime(1, 24), fetchRecentlyAddedAnime(1, 24)]);
       break;
     case 'game':
-      [trending, top] = await Promise.all([fetchTrendingGames(1, 24), fetchTopRatedGames(1, 24)]);
+      [trending, top, recent] = await Promise.all([fetchTrendingGames(1, 24), fetchTopRatedGames(1, 24), fetchRecentlyAddedGames(1, 24)]);
       break;
   }
 
@@ -253,6 +257,7 @@ export async function getCategoryFeed(category: MediaCategory) {
   if (isFallback) {
     trending = fallbackItems(category);
     top = trending;
+    recent = trending;
   }
   const unique = (items: MediaItem[]) => [...new Map(items.map(item => [item.id, item])).values()];
   trending = unique(trending);
@@ -263,10 +268,138 @@ export async function getCategoryFeed(category: MediaCategory) {
     picksForYou: availablePicks,
     trendingNow: availablePicks,
     topRated: top,
-    recentlyAdded: [...availablePicks].sort((a, b) =>
+    recentlyAdded: [...recent].sort((a, b) =>
       (b.releaseDate || `${b.releaseYear}-01-01`).localeCompare(a.releaseDate || `${a.releaseYear}-01-01`)
     ),
     isFallback,
+  };
+}
+
+export interface HomepageSectionPage {
+  items: MediaItem[];
+  hasMore: boolean;
+  page: number;
+  isFallback: boolean;
+}
+
+async function fetchTopRatedItems(category: MediaCategory, page: number): Promise<MediaItem[]> {
+  switch (category) {
+    case 'movie': return fetchTopRatedMovies(page, 24);
+    case 'tv': return fetchTopRatedTV(page, 24);
+    case 'anime': return fetchTopRatedAnime(page, 24);
+    case 'game': return fetchTopRatedGames(page, 24);
+  }
+}
+
+async function fetchRecentlyAddedItems(category: MediaCategory, page: number): Promise<MediaItem[]> {
+  switch (category) {
+    case 'movie': return fetchRecentlyAddedMovies(page, 24);
+    case 'tv': return fetchRecentlyAddedTV(page, 24);
+    case 'anime': return fetchRecentlyAddedAnime(page, 24);
+    case 'game': return fetchRecentlyAddedGames(page, 24);
+  }
+}
+
+async function getCategorySectionPage(
+  category: MediaCategory,
+  section: CatalogSection,
+  page: number,
+): Promise<HomepageSectionPage> {
+  const providerPageSize = category === 'movie' || category === 'tv' ? 20 : 24;
+  let items: MediaItem[];
+  let hasMore = false;
+
+  if (section === 'picks') {
+    const [trending, topRated] = await Promise.all([
+      getProviderItems(category, page),
+      fetchTopRatedItems(category, page),
+    ]);
+    items = [...new Map([...trending, ...topRated].map(item => [item.id, item])).values()];
+    hasMore = trending.length >= providerPageSize || topRated.length >= providerPageSize;
+  } else {
+    items = section === 'top-rated'
+      ? await fetchTopRatedItems(category, page)
+      : section === 'recently-added'
+        ? await fetchRecentlyAddedItems(category, page)
+        : await getProviderItems(category, page);
+    hasMore = items.length >= providerPageSize;
+  }
+
+  if (section === 'recently-added') {
+    items = [...items].sort((a, b) =>
+      (b.releaseDate || `${b.releaseYear}-01-01`).localeCompare(a.releaseDate || `${a.releaseYear}-01-01`)
+    );
+  }
+  if (section === 'top-rated') {
+    items = [...items].sort((a, b) => b.externalRating - a.externalRating);
+  }
+
+  if (items.length === 0 && page === 1) {
+    const fallback = fallbackItems(category);
+    items = section === 'top-rated'
+      ? [...fallback].sort((a, b) => b.externalRating - a.externalRating)
+      : section === 'recently-added'
+        ? [...fallback].sort((a, b) => (b.releaseDate || `${b.releaseYear}-01-01`).localeCompare(a.releaseDate || `${a.releaseYear}-01-01`))
+        : fallback;
+    return { items, hasMore: false, page, isFallback: items.length > 0 };
+  }
+
+  return { items, hasMore, page, isFallback: false };
+}
+
+export async function getHomepageSectionPage(
+  category: 'all' | MediaCategory,
+  section: CatalogSection,
+  requestedPage = 1,
+): Promise<HomepageSectionPage> {
+  const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(500, requestedPage)) : 1;
+  if (requestedPage > 500) return { items: [], hasMore: false, page, isFallback: false };
+  const lastPage = Math.min(500, page + HOMEPAGE_SECTION_PAGES_PER_BATCH - 1);
+  const providerPages = Array.from({ length: lastPage - page + 1 }, (_, index) => page + index);
+  const getCategoryBatch = async (itemCategory: MediaCategory): Promise<HomepageSectionPage> => {
+    const pages = await Promise.all(providerPages.map(providerPage =>
+      getCategorySectionPage(itemCategory, section, providerPage)
+    ));
+    const items = [...new Map(pages.flatMap(result => result.items).map(item => [item.id, item])).values()];
+    if (section === 'top-rated') items.sort((a, b) => b.externalRating - a.externalRating);
+    if (section === 'recently-added') {
+      items.sort((a, b) => (b.releaseDate || `${b.releaseYear}-01-01`).localeCompare(a.releaseDate || `${a.releaseYear}-01-01`));
+    }
+    return {
+      items,
+      hasMore: pages.at(-1)?.hasMore ?? false,
+      page: lastPage,
+      isFallback: pages.some(result => result.isFallback),
+    };
+  };
+
+  if (category !== 'all') return getCategoryBatch(category);
+
+  const categories: MediaCategory[] = ['movie', 'tv', 'anime', 'game'];
+  const pages = await Promise.all(categories.map(getCategoryBatch));
+  const allItems = pages.flatMap(result => result.items);
+  let items: MediaItem[];
+
+  if (section === 'top-rated') {
+    items = allItems.sort((a, b) => b.externalRating - a.externalRating);
+  } else if (section === 'recently-added') {
+    items = allItems.sort((a, b) =>
+      (b.releaseDate || `${b.releaseYear}-01-01`).localeCompare(a.releaseDate || `${a.releaseYear}-01-01`)
+    );
+  } else {
+    items = [];
+    for (let index = 0; index < Math.max(0, ...pages.map(result => result.items.length)); index += 1) {
+      for (const result of pages) {
+        if (result.items[index]) items.push(result.items[index]);
+      }
+    }
+  }
+
+  return {
+    items: [...new Map(items.map(item => [item.id, item])).values()],
+    hasMore: pages.some(result => result.hasMore),
+    page: lastPage,
+    isFallback: pages.some(result => result.isFallback),
   };
 }
 

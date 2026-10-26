@@ -162,7 +162,7 @@ export default function HomePage() {
           {[1, 2, 3, 4, 5, 6].map(n => (
             <div
               key={n}
-              className="rounded-2xl bg-[#13161F]/80 p-2.5 border border-zinc-800/40 animate-pulse h-64 flex flex-col justify-between"
+              className="mx-auto w-full max-w-[210px] rounded-2xl bg-[#13161F]/80 p-2.5 border border-zinc-800/40 animate-pulse h-64 flex flex-col justify-between"
             >
               <div className="aspect-[2/3] w-full rounded-xl bg-zinc-800/60" />
               <div className="space-y-1.5 mt-2">
@@ -178,7 +178,9 @@ export default function HomePage() {
     if (filtered.length === 0) {
       return (
         <div className="py-8 text-center text-xs text-zinc-500">
-          No titles found matching &ldquo;{searchQuery}&rdquo;.
+          {searchQuery.trim()
+            ? <>No titles found matching &ldquo;{searchQuery}&rdquo;.</>
+            : 'No titles are available in this section right now.'}
         </div>
       );
     }
@@ -186,7 +188,7 @@ export default function HomePage() {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {filtered.slice(0, 6).map(item => (
-          <WatchtowrCard key={item.id} item={item} variant="vertical" onFeedback={handleFeedback} />
+          <WatchtowrCard key={item.id} item={item} variant="home" onFeedback={handleFeedback} />
         ))}
       </div>
     );
@@ -303,7 +305,7 @@ export default function HomePage() {
                 </span>
               </div>
               <Link
-                href={activeCategory === 'all' ? '/discover' : `/discover?cat=${activeCategory}`}
+                href={`/collection?section=picks&category=${activeCategory}`}
                 className="text-xs text-rose-500 hover:text-rose-400 font-medium transition-colors"
               >
                 See All
@@ -322,7 +324,7 @@ export default function HomePage() {
                 </span>
               </div>
               <Link
-                href={activeCategory === 'all' ? '/discover' : `/discover?cat=${activeCategory}`}
+                href={`/collection?section=trending&category=${activeCategory}`}
                 className="text-xs text-rose-500 hover:text-rose-400 font-medium transition-colors"
               >
                 See All
@@ -341,7 +343,7 @@ export default function HomePage() {
                 </span>
               </div>
               <Link
-                href={activeCategory === 'all' ? '/discover' : `/discover?cat=${activeCategory}`}
+                href={`/collection?section=top-rated&category=${activeCategory}`}
                 className="text-xs text-rose-500 hover:text-rose-400 font-medium transition-colors"
               >
                 See All
@@ -355,7 +357,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-white tracking-tight">Recently Added</h2>
               <Link
-                href={activeCategory === 'all' ? '/discover' : `/discover?cat=${activeCategory}`}
+                href={`/collection?section=recently-added&category=${activeCategory}`}
                 className="text-xs text-rose-500 hover:text-rose-400 font-medium transition-colors"
               >
                 See All

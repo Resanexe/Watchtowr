@@ -105,11 +105,16 @@ export async function fetchTrendingAnime(page = 1, limit = 24): Promise<MediaIte
   }
 }
 
-export async function fetchPopularAnime(page = 1, limit = 24): Promise<MediaItem[]> {
+async function fetchAnimeBySort(
+  page: number,
+  limit: number,
+  sort: 'POPULARITY_DESC' | 'SCORE_DESC' | 'START_DATE_DESC',
+  label: string,
+): Promise<MediaItem[]> {
   const query = `
-    query ($page: Int, $limit: Int) {
+    query ($page: Int, $limit: Int, $sort: [MediaSort]) {
       Page(page: $page, perPage: $limit) {
-        media(type: ANIME, sort: POPULARITY_DESC) {
+        media(type: ANIME, sort: $sort) {
           id
           title { romaji english }
           description(asHtml: false)
@@ -132,16 +137,28 @@ export async function fetchPopularAnime(page = 1, limit = 24): Promise<MediaItem
     const res = await fetch(ANILIST_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query, variables: { page, limit } }),
+      body: JSON.stringify({ query, variables: { page, limit, sort } }),
       next: { revalidate: 3600 },
     });
     if (!res.ok) throw new Error(`AniList returned status ${res.status}`);
     const data = await res.json();
     return ((data?.data?.Page?.media || []) as AniListEntry[]).map(formatAniListItem);
   } catch (err) {
-    console.error('AniList popular error:', err);
+    console.error(`AniList ${label} error:`, err);
     return [];
   }
+}
+
+export function fetchPopularAnime(page = 1, limit = 24): Promise<MediaItem[]> {
+  return fetchAnimeBySort(page, limit, 'POPULARITY_DESC', 'popular');
+}
+
+export function fetchTopRatedAnime(page = 1, limit = 24): Promise<MediaItem[]> {
+  return fetchAnimeBySort(page, limit, 'SCORE_DESC', 'top rated');
+}
+
+export function fetchRecentlyAddedAnime(page = 1, limit = 24): Promise<MediaItem[]> {
+  return fetchAnimeBySort(page, limit, 'START_DATE_DESC', 'recently added');
 }
 
 export async function searchAnime(query: string, page = 1, limit = 20): Promise<{

@@ -1,5 +1,7 @@
 export type MediaCategory = 'movie' | 'tv' | 'anime' | 'game';
 
+export type CatalogSection = 'picks' | 'trending' | 'top-rated' | 'recently-added';
+
 export type MyListStatus = 'want_to_try' | 'in_progress' | 'completed' | 'dropped';
 
 export type FeedbackType = 'not_interested' | 'show_less_like_this';

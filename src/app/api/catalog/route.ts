@@ -1,5 +1,5 @@
-import { getCatalog, getCategoryFeed, getTitleDetails, MEDIA_CATEGORIES, searchAllCatalogs, searchCatalog } from '@/lib/catalog-server';
-import { FilterState, MediaCategory, PresetMood } from '@/types';
+import { getCatalog, getCategoryFeed, getHomepageSectionPage, getTitleDetails, MEDIA_CATEGORIES, searchAllCatalogs, searchCatalog } from '@/lib/catalog-server';
+import { CatalogSection, FilterState, MediaCategory, PresetMood } from '@/types';
 import { ALL_PRESET_MOODS } from '@/lib/mock-data';
 
 function numberParam(params: URLSearchParams, key: string): number | undefined {
@@ -24,6 +24,22 @@ export async function GET(request: Request) {
     const requestedPage = Number(searchParams.get('page') || 1);
     const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
     return Response.json(await searchAllCatalogs(query, page));
+  }
+
+  if (mode === 'section') {
+    const acceptedSections: CatalogSection[] = ['picks', 'trending', 'top-rated', 'recently-added'];
+    const section = searchParams.get('section') as CatalogSection | null;
+    const requestedCategory = searchParams.get('category');
+    const category = requestedCategory === 'all' || MEDIA_CATEGORIES.includes(requestedCategory as MediaCategory)
+      ? requestedCategory as 'all' | MediaCategory
+      : null;
+    const requestedPage = Number(searchParams.get('page') || 1);
+    const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+
+    if (!section || !acceptedSections.includes(section) || !category) {
+      return Response.json({ error: 'Invalid homepage section request' }, { status: 400 });
+    }
+    return Response.json(await getHomepageSectionPage(category, section, page));
   }
 
   const category = searchParams.get('category');
