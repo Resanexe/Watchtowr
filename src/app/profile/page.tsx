@@ -209,7 +209,7 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-[#0B0D11] text-zinc-100 flex flex-col selection:bg-[#BE123C] selection:text-white">
       <Navbar />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+      <main className="mx-auto w-full max-w-[1760px] flex-1 px-4 py-8 sm:px-6 sm:py-12">
         <div className="mb-6 flex items-center gap-2 text-xs text-zinc-500">
           <Link href="/" className="hover:text-zinc-200">Home</Link>
           <ChevronRight className="h-3.5 w-3.5" />

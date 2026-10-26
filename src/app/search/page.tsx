@@ -93,7 +93,7 @@ function SearchContent() {
     <div className="min-h-screen bg-[#0B0D11] text-zinc-100 flex flex-col font-sans">
       <Navbar searchQuery={searchInput} onSearchChange={setSearchInput} />
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-10 sm:px-6">
+      <main className="mx-auto w-full max-w-[1760px] flex-1 px-4 py-10 sm:px-6">
         <div className="mb-7">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">Provider search</p>
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
@@ -147,7 +147,7 @@ function SearchContent() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7">
               {visibleItems.map(item => (
                 <div key={item.id} className="relative">
                   <span className="absolute left-3 top-3 z-10 rounded bg-black/80 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-white">

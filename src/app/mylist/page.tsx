@@ -51,7 +51,7 @@ export default function MyListPage() {
 
       {/* Sub-bar Category Pills & Counter */}
       <div className="w-full border-b border-zinc-800/60 bg-[#0F1218]/90">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center justify-between">
+        <div className="mx-auto max-w-[1760px] px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {[
               { id: 'all' as const, label: 'All' },
@@ -84,7 +84,7 @@ export default function MyListPage() {
       </div>
 
       {/* Main Content Area: 5-Column Grid */}
-      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 flex-1">
+      <main className="mx-auto w-full max-w-[1760px] px-4 sm:px-6 py-8 flex-1">
         {filteredItems.length === 0 ? (
           <div className="py-28 text-center space-y-3">
             <h3 className="text-base font-bold text-white">Your list is empty</h3>
@@ -101,7 +101,7 @@ export default function MyListPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
             {filteredItems.map(item => {
               const mediaItem: MediaItem = {
                 id: item.mediaId,

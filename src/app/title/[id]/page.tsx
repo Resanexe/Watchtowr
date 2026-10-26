@@ -218,10 +218,23 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
         </div>
 
         {/* 2-Column Detail Layout */}
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+        <div className="mx-auto max-w-[1760px] px-4 sm:px-6 py-8">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
             {/* Left 2 Columns: Title Info, Synopsis, Metadata */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className="lg:col-span-2 grid grid-cols-1 gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
+              <div className="mx-auto w-full max-w-40 lg:mx-0 lg:max-w-none">
+                <div className="relative aspect-[2/3] overflow-hidden rounded-2xl border border-zinc-800 bg-[#14171F] shadow-xl shadow-black/30">
+                  <Image
+                    src={item.posterUrl}
+                    alt={`${item.title} poster`}
+                    fill
+                    sizes="(max-width: 1023px) 160px, 220px"
+                    className="object-cover"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-6">
               {/* Title & Tags */}
               <div>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
@@ -316,6 +329,7 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
                     </span>
                   </div>
                 </div>
+              </div>
               </div>
             </div>
 

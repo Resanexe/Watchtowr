@@ -135,6 +135,13 @@ export default function HomePage() {
     }
   };
 
+  const heroVideoSrc = activeCategory === 'all' ? undefined : {
+    game: '/images/categories/games-video.mp4',
+    anime: '/images/categories/anime-video.mp4',
+    movie: '/images/categories/movies-video.mp4',
+    tv: '/images/categories/tv-video.mp4',
+  }[activeCategory];
+
   const filterBySearch = (items: MediaItem[]) => {
     const excludedIds = new Set(feedback.filter(signal => signal.type === 'not_interested').map(signal => signal.mediaId));
     const visible = items.filter(item => !excludedIds.has(item.id));
@@ -146,7 +153,7 @@ export default function HomePage() {
     );
   };
 
-  const renderCardGrid = (items: MediaItem[], variant: 'vertical' | 'horizontal-banner' = 'vertical') => {
+  const renderCardGrid = (items: MediaItem[]) => {
     const filtered = filterBySearch(items);
 
     if (isLoading) {
@@ -172,16 +179,6 @@ export default function HomePage() {
       return (
         <div className="py-8 text-center text-xs text-zinc-500">
           No titles found matching &ldquo;{searchQuery}&rdquo;.
-        </div>
-      );
-    }
-
-    if (variant === 'horizontal-banner' && activeCategory === 'game') {
-      return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.slice(0, 6).map(item => (
-            <WatchtowrCard key={item.id} item={item} variant="horizontal-banner" onFeedback={handleFeedback} />
-          ))}
         </div>
       );
     }
@@ -227,6 +224,21 @@ export default function HomePage() {
             sizes="100vw"
             className="object-cover object-center filter brightness-40 transition-all duration-700 ease-in-out"
           />
+          {heroVideoSrc && (
+            <video
+              key={heroVideoSrc}
+              src={heroVideoSrc}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              poster={getHeroBackdrop()}
+              aria-hidden="true"
+              tabIndex={-1}
+              className="absolute inset-0 h-full w-full object-cover object-center brightness-40"
+            />
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D11] via-[#0B0D11]/60 to-transparent" />
           <div className="absolute inset-0 bg-radial-gradient from-transparent to-[#0B0D11]/70" />
 
@@ -280,7 +292,7 @@ export default function HomePage() {
         </div>
 
         {/* Catalog Rows Container */}
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10 space-y-12">
+        <div className="mx-auto max-w-[1760px] px-4 sm:px-6 py-10 space-y-12">
           {/* Section 1: Picks for You */}
           <section>
             <div className="flex items-center justify-between mb-4">
@@ -297,7 +309,7 @@ export default function HomePage() {
                 See All
               </Link>
             </div>
-            {renderCardGrid(rankedItems.slice(0, 12), 'vertical')}
+            {renderCardGrid(rankedItems.slice(0, 12))}
           </section>
 
           {/* Section 2: Trending Now */}
@@ -316,7 +328,7 @@ export default function HomePage() {
                 See All
               </Link>
             </div>
-            {renderCardGrid(feed.trendingNow, activeCategory === 'game' ? 'horizontal-banner' : 'vertical')}
+            {renderCardGrid(feed.trendingNow)}
           </section>
 
           {/* Section 3: Top Rated */}
@@ -335,7 +347,7 @@ export default function HomePage() {
                 See All
               </Link>
             </div>
-            {renderCardGrid(feed.topRated, activeCategory === 'game' ? 'horizontal-banner' : 'vertical')}
+            {renderCardGrid(feed.topRated)}
           </section>
 
           {/* Section 4: Recently Added */}
@@ -349,7 +361,7 @@ export default function HomePage() {
                 See All
               </Link>
             </div>
-            {renderCardGrid(feed.recentlyAdded, 'vertical')}
+            {renderCardGrid(feed.recentlyAdded)}
           </section>
         </div>
       </main>

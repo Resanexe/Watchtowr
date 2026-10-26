@@ -41,7 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({ searchQuery = '', onSearchChange
       className="sticky top-0 z-50 w-full border-b border-zinc-800/80 bg-[#0B0D11]/95 backdrop-blur-md"
       suppressHydrationWarning
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-[1760px] items-center justify-between px-4 py-3 sm:px-6">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#BE123C] text-white shadow-md shadow-rose-950/50 group-hover:scale-105 transition-transform">

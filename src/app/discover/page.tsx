@@ -246,7 +246,7 @@ function DiscoverContent() {
 
       {/* Sub-bar Category Pills */}
       <div className="w-full border-b border-zinc-800/60 bg-[#0F1218]/90">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center gap-3">
+        <div className="mx-auto max-w-[1760px] px-4 sm:px-6 py-3 flex items-center gap-3">
           {[
             { id: 'game' as MediaCategory, label: 'Games' },
             { id: 'anime' as MediaCategory, label: 'Anime' },
@@ -281,7 +281,7 @@ function DiscoverContent() {
       </div>
 
       {/* Main Discover Layout (2 Columns) */}
-      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 flex-1">
+      <main className="mx-auto w-full max-w-[1760px] px-4 sm:px-6 py-8 flex-1">
         <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-8">
           {/* Left Column: Category Sidebar Filters */}
           <aside className="md:col-span-1 border-r border-zinc-800/80 pr-6 space-y-6">
@@ -498,7 +498,7 @@ function DiscoverContent() {
             )}
 
             {isLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-5">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
                   <div
                     key={n}
@@ -555,7 +555,7 @@ function DiscoverContent() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-5">
                   {filteredMatches.map(item => (
                     <WatchtowrCard
                       key={item.id}
