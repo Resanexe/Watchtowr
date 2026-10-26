@@ -1,10 +1,12 @@
 'use client';
 
-import React from 'react';
-import Image from 'next/image';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
+import { GUEST_USER, normalizeSession, STORAGE_KEYS } from '@/lib/storage';
+import { useStoredValue } from '@/lib/use-stored-value';
+import { getProfileInitials, PROFILE_AVATAR_COLORS } from '@/lib/profile-utils';
 
 interface NavbarProps {
   searchQuery?: string;
@@ -13,10 +15,26 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ searchQuery = '', onSearchChange }) => {
   const pathname = usePathname();
+  const router = useRouter();
+  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
+  const inputValue = onSearchChange ? searchQuery : localSearchQuery;
+  const storedSession = useStoredValue(STORAGE_KEYS.session, GUEST_USER);
+  const session = useMemo(() => normalizeSession(storedSession), [storedSession]);
 
   const isHome = pathname === '/' || pathname === '';
   const isDiscover = pathname.startsWith('/discover');
   const isMyList = pathname.startsWith('/mylist');
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = inputValue.trim();
+    if (query) router.push(`/search?q=${encodeURIComponent(query)}`);
+  };
+
+  const handleSearchChange = (query: string) => {
+    if (onSearchChange) onSearchChange(query);
+    else setLocalSearchQuery(query);
+  };
 
   return (
     <header
@@ -57,7 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({ searchQuery = '', onSearchChange
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Home
+            For You
           </Link>
 
           <Link
@@ -85,27 +103,37 @@ export const Navbar: React.FC<NavbarProps> = ({ searchQuery = '', onSearchChange
 
         {/* Search Bar & User Profile */}
         <div className="flex items-center gap-3">
-          <div className="relative w-44 sm:w-60 md:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <form onSubmit={handleSearchSubmit} role="search" className="relative w-44 sm:w-60 md:w-64">
             <input
               type="text"
-              value={searchQuery}
-              onChange={e => onSearchChange?.(e.target.value)}
-              placeholder="Search titles..."
+              value={inputValue}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="Search all titles..."
+              aria-label="Search all movies, TV, anime, and games"
               suppressHydrationWarning
-              className="w-full rounded-lg border border-zinc-800 bg-[#161922] py-1.5 pl-8 pr-3 text-xs text-zinc-200 placeholder-zinc-500 focus:border-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all"
+              className="w-full rounded-lg border border-zinc-800 bg-[#161922] py-1.5 pl-3 pr-9 text-xs text-zinc-200 placeholder-zinc-500 focus:border-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all"
             />
-          </div>
+            <button
+              type="submit"
+              aria-label="Search provider catalogs"
+              title="Search provider catalogs"
+              disabled={!inputValue.trim()}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+          </form>
 
           {/* Profile Avatar */}
-          <Link href="/mylist" className="shrink-0" title="Profile & Saved Lists">
-            <Image
-              src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80"
-              alt="User Avatar"
-              width={32}
-              height={32}
-              className="h-8 w-8 rounded-full object-cover border border-amber-600/60 ring-1 ring-amber-500/30 hover:scale-105 transition-transform"
-            />
+          <Link
+            href="/profile"
+            className={`shrink-0 rounded-full bg-gradient-to-br ${PROFILE_AVATAR_COLORS[session.avatarColor]} p-[2px] ring-1 hover:scale-105 transition-transform`}
+            title={`${session.displayName}'s profile`}
+            aria-label="Open profile"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#12141b] bg-cover bg-center text-[10px] font-bold text-white" style={session.avatarDataUrl ? { backgroundImage: `url("${session.avatarDataUrl}")` } : undefined}>
+              {!session.avatarDataUrl && getProfileInitials(session.displayName)}
+            </span>
           </Link>
         </div>
       </div>

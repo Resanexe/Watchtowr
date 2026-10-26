@@ -7,6 +7,7 @@ import {
   ScoredMediaItem,
   FilterState,
 } from '@/types';
+import { platformMatches } from '@/lib/media-metadata';
 
 export function calculateTitleTimeMinutes(item: MediaItem): number | undefined {
   if (item.category === 'movie' && item.runtimeMinutes !== undefined) {
@@ -19,6 +20,38 @@ export function calculateTitleTimeMinutes(item: MediaItem): number | undefined {
     return item.gamePlaytimeHours * 60;
   }
   return undefined;
+}
+
+export function compareOptionalDurations(a: number | undefined, b: number | undefined): number {
+  if (a === undefined) return b === undefined ? 0 : 1;
+  if (b === undefined) return -1;
+  return a - b;
+}
+
+function normalizeGenre(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function genreMatches(selectedGenre: string, itemGenres: string[]): boolean {
+  const selected = normalizeGenre(selectedGenre);
+  const normalizedGenres = itemGenres.map(normalizeGenre);
+  if (normalizedGenres.includes(selected)) return true;
+
+  // TMDB's TV taxonomy combines sci-fi with fantasy while the UI uses the
+  // shorter, familiar label.
+  if (selected === 'sci fi' || selected === 'fantasy') {
+    return normalizedGenres.includes('sci fi fantasy');
+  }
+  if (selected === 'sci fi fantasy') {
+    return normalizedGenres.includes('sci fi') || normalizedGenres.includes('fantasy');
+  }
+  if (selected === 'rpg') {
+    return normalizedGenres.includes('role playing') || normalizedGenres.includes('role playing games rpg');
+  }
+  if (selected === 'role playing') {
+    return normalizedGenres.some(genre => genre === 'rpg' || genre === 'role playing games rpg');
+  }
+  return false;
 }
 
 export function filterCatalog<T extends MediaItem>(
@@ -48,7 +81,7 @@ export function filterCatalog<T extends MediaItem>(
       const matchTitle = item.title.toLowerCase().includes(q);
       const matchSynopsis = item.synopsis.toLowerCase().includes(q);
       const matchCreator = item.developerOrDirector?.toLowerCase().includes(q);
-      const matchGenre = item.genres.some(g => g.toLowerCase().includes(q));
+      const matchGenre = [...item.genres, ...(item.genreTags || [])].some(g => g.toLowerCase().includes(q));
       if (!matchTitle && !matchSynopsis && !matchCreator && !matchGenre) {
         return false;
       }
@@ -57,13 +90,14 @@ export function filterCatalog<T extends MediaItem>(
     // 4. Genre filtering
     if (filter.genres.length > 0) {
       const hasMatchingGenre = filter.genres.some(g =>
-        item.genres.some(itemGenre => itemGenre.toLowerCase() === g.toLowerCase())
+        genreMatches(g, [...item.genres, ...(item.genreTags || [])])
       );
       if (!hasMatchingGenre) return false;
     }
 
-    // 5. Preset mood filter
-    if (filter.mood && !item.moods.includes(filter.mood)) {
+    // 5. Preset mood filter (multi-select uses OR semantics)
+    const selectedMoods = filter.moods?.length ? filter.moods : filter.mood ? [filter.mood] : [];
+    if (selectedMoods.length > 0 && !selectedMoods.some(mood => item.moods.includes(mood))) {
       return false;
     }
 
@@ -92,9 +126,17 @@ export function filterCatalog<T extends MediaItem>(
       }
     }
 
+    // 8b. Category-specific duration bands also require known duration data.
+    if (filter.runtimeMinMinutes !== undefined || filter.runtimeMaxMinutes !== undefined) {
+      const itemTime = calculateTitleTimeMinutes(item);
+      if (itemTime === undefined) return false;
+      if (filter.runtimeMinMinutes !== undefined && itemTime < filter.runtimeMinMinutes) return false;
+      if (filter.runtimeMaxMinutes !== undefined && itemTime > filter.runtimeMaxMinutes) return false;
+    }
+
     // 9. Game platform filter
     if (filter.platform && item.category === 'game') {
-      if (!item.gamePlatforms?.includes(filter.platform)) {
+      if (!item.gamePlatforms || !platformMatches(filter.platform, item.gamePlatforms)) {
         return false;
       }
     }
@@ -130,11 +172,12 @@ export function scoreAndRankRecommendations(
 
   reviews.forEach(r => {
     const reviewedItem = items.find(i => i.id === r.mediaId);
-    if (reviewedItem) {
+    const reviewedGenres = r.genres?.length ? r.genres : reviewedItem?.genres;
+    if (reviewedGenres) {
       if (r.rating >= 4) {
-        reviewedItem.genres.forEach(g => highRatedGenres.add(g.toLowerCase()));
+        reviewedGenres.forEach(g => highRatedGenres.add(normalizeGenre(g)));
       } else if (r.rating <= 2) {
-        reviewedItem.genres.forEach(g => lowRatedGenres.add(g.toLowerCase()));
+        reviewedGenres.forEach(g => lowRatedGenres.add(normalizeGenre(g)));
       }
     }
   });
@@ -143,13 +186,16 @@ export function scoreAndRankRecommendations(
   const penalizedGenres = new Set<string>();
   feedback
     .filter(f => f.type === 'show_less_like_this')
-    .forEach(f => f.reasonGenres.forEach(rg => penalizedGenres.add(rg.toLowerCase())));
+    .forEach(f => f.reasonGenres.forEach(rg => penalizedGenres.add(normalizeGenre(rg))));
 
   const scoredItems: ScoredMediaItem[] = items
     .filter(item => item.externalRating >= preferences.minRating)
     .map(item => {
     let score = 50; // base score
     const explanations: string[] = [];
+    const itemGenres = [...new Map(
+      [...item.genres, ...(item.genreTags || [])].map(genre => [normalizeGenre(genre), genre])
+    ).values()];
 
     // --- Signal 1: Category Preference ---
     if (preferences.preferredCategories.includes(item.category)) {
@@ -157,8 +203,8 @@ export function scoreAndRankRecommendations(
     }
 
     // --- Signal 2: Explicit Genre Matching ---
-    const matchingPreferredGenres = item.genres.filter(g =>
-      preferences.preferredGenres.some(pg => pg.toLowerCase() === g.toLowerCase())
+    const matchingPreferredGenres = itemGenres.filter(g =>
+      preferences.preferredGenres.some(pg => genreMatches(pg, [g]))
     );
     if (matchingPreferredGenres.length > 0) {
       const boost = matchingPreferredGenres.length * 8;
@@ -167,8 +213,8 @@ export function scoreAndRankRecommendations(
     }
 
     // Disliked genre penalty
-    const matchingDislikedGenres = item.genres.filter(g =>
-      preferences.dislikedGenres.some(dg => dg.toLowerCase() === g.toLowerCase())
+    const matchingDislikedGenres = itemGenres.filter(g =>
+      preferences.dislikedGenres.some(dg => genreMatches(dg, [g]))
     );
     if (matchingDislikedGenres.length > 0) {
       score -= matchingDislikedGenres.length * 20;
@@ -192,12 +238,17 @@ export function scoreAndRankRecommendations(
     }
 
     // Implicit similarity to high-rated titles
-    const overlapWithHighRated = item.genres.filter(g => highRatedGenres.has(g.toLowerCase()));
+    const overlapWithHighRated = itemGenres.filter(g => highRatedGenres.has(normalizeGenre(g)));
     if (overlapWithHighRated.length > 0) {
       score += overlapWithHighRated.length * 4;
       if (explanations.length < 2) {
         explanations.push(`Similar to titles you rated highly`);
       }
+    }
+
+    const overlapWithLowRated = itemGenres.filter(g => lowRatedGenres.has(normalizeGenre(g)));
+    if (overlapWithLowRated.length > 0) {
+      score -= overlapWithLowRated.length * 4;
     }
 
     // --- Signal 5: MyList Status ---
@@ -216,7 +267,7 @@ export function scoreAndRankRecommendations(
     }
 
     // --- Signal 6: Negative Feedback (Show less like this) ---
-    const matchingPenalized = item.genres.filter(g => penalizedGenres.has(g.toLowerCase()));
+    const matchingPenalized = itemGenres.filter(g => penalizedGenres.has(normalizeGenre(g)));
     if (matchingPenalized.length > 0) {
       score -= matchingPenalized.length * 15;
     }

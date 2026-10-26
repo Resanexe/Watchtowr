@@ -1,18 +1,18 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { WatchtowrCard } from '@/components/WatchtowrCard';
-import { fetchLiveCatalog } from '@/lib/api-service';
-import { MediaCategory, MediaItem, PresetMood, UserFeedback } from '@/types';
+import { fetchLiveDiscover } from '@/lib/api-service';
+import { FilterState, MediaCategory, MediaItem, PresetMood, UserFeedback } from '@/types';
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { ALL_PRESET_MOODS } from '@/lib/mock-data';
 import { useHydrated } from '@/lib/use-hydrated';
 import { addFeedbackSignal, STORAGE_KEYS } from '@/lib/storage';
 import { useStoredValue } from '@/lib/use-stored-value';
-import { calculateTitleTimeMinutes } from '@/lib/recommendation-engine';
+import { compareOptionalDurations } from '@/lib/recommendation-engine';
 
 interface CategoryFilters {
   title: string;
@@ -24,6 +24,8 @@ interface CategoryFilters {
   platforms?: string[];
 }
 
+const EMPTY_FEEDBACK: UserFeedback[] = [];
+
 function DiscoverContent() {
   const hydrated = useHydrated();
   const router = useRouter();
@@ -31,13 +33,15 @@ function DiscoverContent() {
   const initialCat = (searchParams.get('cat') as MediaCategory) || 'movie';
   const activeCategory: MediaCategory = ['movie', 'tv', 'anime', 'game'].includes(initialCat) ? initialCat : 'movie';
   const [catalog, setCatalog] = useState<MediaItem[]>([]);
-  const [loadedCategory, setLoadedCategory] = useState<MediaCategory | null>(null);
-  const isLoading = loadedCategory !== activeCategory;
+  const [loadedQueryKey, setLoadedQueryKey] = useState('');
   const [isFallback, setIsFallback] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [page, setPage] = useState(2);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedMoods, setSelectedMoods] = useState<PresetMood[]>([]);
   const [selectedRuntime, setSelectedRuntime] = useState<string | null>(null);
@@ -48,32 +52,78 @@ function DiscoverContent() {
   const [sortBy, setSortBy] = useState('Relevance');
   const feedback = useStoredValue(STORAGE_KEYS.feedback, EMPTY_FEEDBACK);
 
-  // Load live data from the API corresponding to activeCategory (Loads 2 full pages on initial load)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  const runtimeRange = useMemo((): { min?: number; max?: number } => {
+    if (!selectedRuntime) return {};
+    if (activeCategory === 'movie') {
+      if (selectedRuntime === 'Under 1h30m') return { max: 89 };
+      if (selectedRuntime === '1h30m to 2h') return { min: 90, max: 120 };
+      return { min: 121 };
+    }
+    if (activeCategory === 'game') {
+      if (selectedRuntime === 'Under 5hrs') return { max: 299 };
+      if (selectedRuntime === '5 to 15hrs') return { min: 300, max: 899 };
+      if (selectedRuntime === '15 to 30hrs') return { min: 900, max: 1799 };
+      if (selectedRuntime === '30 to 60hrs') return { min: 1800, max: 3599 };
+      return { min: 3600 };
+    }
+    if (selectedRuntime === 'Under 20min') return { max: 19 };
+    if (selectedRuntime === '20 to 45min') return { min: 20, max: 45 };
+    return { min: 45 };
+  }, [activeCategory, selectedRuntime]);
+
+  const queryFilters = useMemo<FilterState>(() => ({
+    category: activeCategory,
+    searchQuery: debouncedSearchQuery,
+    genres: selectedGenres,
+    moods: selectedMoods,
+    minRating: selectedRating === 'Any' ? 0 : Number(selectedRating.replace('+', '')),
+    maxRating: 5,
+    maxTimeMinutes,
+    runtimeMinMinutes: runtimeRange.min,
+    runtimeMaxMinutes: runtimeRange.max,
+    strictTimeOnly: true,
+    platform: selectedPlatform || undefined,
+    seriesStatus: selectedStatus || undefined,
+    sortBy: sortBy === 'Rating' ? 'rating'
+      : sortBy === 'Newest' ? 'release'
+        : sortBy === 'Title' ? 'title'
+          : sortBy === 'Shortest' ? 'shortest_time' : 'recommended',
+  }), [activeCategory, debouncedSearchQuery, maxTimeMinutes, runtimeRange, selectedGenres, selectedMoods, selectedPlatform, selectedRating, selectedStatus, sortBy]);
+  const queryKey = JSON.stringify(queryFilters);
+  const queryKeyRef = useRef(queryKey);
+  const isLoading = loadedQueryKey !== queryKey;
+
+  // Ask the server for matching titles; filtering happens across provider pages there.
   useEffect(() => {
     let isMounted = true;
+    queryKeyRef.current = queryKey;
     async function loadCategoryData() {
+      setCatalog([]);
+      setIsFallback(false);
+      setLoadError(false);
+      setHasMore(false);
+      setNextCursor(null);
+      setLoadedQueryKey('');
       try {
-        const [p1, p2] = await Promise.all([
-          fetchLiveCatalog(activeCategory, 1),
-          fetchLiveCatalog(activeCategory, 2),
-        ]);
+        const result = await fetchLiveDiscover(activeCategory, queryFilters);
         if (isMounted) {
-          const seen = new Set<string>();
-          const uniqueItems = [...p1.items, ...p2.items].filter(it => {
-            if (seen.has(it.id)) return false;
-            seen.add(it.id);
-            return true;
-          });
-          setCatalog(uniqueItems);
-          setIsFallback(p1.isFallback || p2.isFallback);
-          setHasMore(!(p1.isFallback || p2.isFallback));
-          setLoadedCategory(activeCategory);
+          setCatalog(result.items);
+          setIsFallback(result.isFallback);
+          setHasMore(result.hasMore);
+          setNextCursor(result.nextCursor);
+          setLoadedQueryKey(queryKey);
         }
       } catch (e) {
         console.error('Discover live fetch error:', e);
         if (isMounted) {
           setCatalog([]);
-          setLoadedCategory(activeCategory);
+          setLoadError(true);
+          setLoadedQueryKey(queryKey);
         }
       }
     }
@@ -83,26 +133,27 @@ function DiscoverContent() {
     return () => {
       isMounted = false;
     };
-  }, [activeCategory]);
+  }, [activeCategory, queryFilters, queryKey, retryToken]);
 
   const handleLoadMore = async () => {
-    if (isLoadingMore || !hasMore) return;
+    if (isLoadingMore || !hasMore || !nextCursor) return;
+    const requestQueryKey = queryKey;
     setIsLoadingMore(true);
-    const nextPage = page + 1;
 
     try {
-      const { items: newItems, isFallback: usingFallback } = await fetchLiveCatalog(activeCategory, nextPage);
+      const result = await fetchLiveDiscover(activeCategory, queryFilters, nextCursor);
+      if (queryKeyRef.current !== requestQueryKey) return;
 
-      if (newItems.length === 0 || usingFallback) {
-        setHasMore(false);
-      } else {
+      if (result.items.length > 0) {
         setCatalog(prev => {
           const seen = new Set(prev.map(i => i.id));
-          const fresh = newItems.filter(i => !seen.has(i.id));
+          const fresh = result.items.filter(i => !seen.has(i.id));
           return [...prev, ...fresh];
         });
-        setPage(nextPage);
       }
+      setIsFallback(result.isFallback);
+      setHasMore(result.hasMore);
+      setNextCursor(result.nextCursor);
     } catch (e) {
       console.error('Failed to load more titles:', e);
     } finally {
@@ -123,7 +174,7 @@ function DiscoverContent() {
       case 'tv':
         return {
           title: 'Filters (TV Shows)',
-          genres: ['Drama', 'Mystery', 'Thriller', 'Sci-Fi', 'Crime', 'Fantasy', 'Comedy', 'Romance', 'Reality', 'Documentary'],
+          genres: ['Action & Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Romance', 'Sci-Fi'],
           moods: ALL_PRESET_MOODS,
           episodeLengths: ['Under 20min', '20 to 45min', '45min+'],
         };
@@ -153,63 +204,24 @@ function DiscoverContent() {
     }
   };
 
-  // Filter items matching active category and checkboxes
+  // Provider filters are applied on the server before results are paginated.
+  // This local step only hides titles the user marked Not Interested.
   const filteredMatches = useMemo(() => {
     const excludedIds = new Set(feedback.filter(signal => signal.type === 'not_interested').map(signal => signal.mediaId));
-    const filtered = catalog.filter(item => {
-      if (excludedIds.has(item.id)) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        if (!item.title.toLowerCase().includes(q)
-          && !item.synopsis.toLowerCase().includes(q)
-          && !(item.developerOrDirector || '').toLowerCase().includes(q)
-          && !item.genres.some(genre => genre.toLowerCase().includes(q))) return false;
-      }
-      if (selectedGenres.length && !selectedGenres.some(genre =>
-        item.genres.some(itemGenre => itemGenre.toLowerCase().includes(genre.toLowerCase())))) return false;
-      if (selectedMoods.length && !selectedMoods.some(mood => item.moods.includes(mood))) return false;
-      if (selectedPlatform && !item.gamePlatforms?.some(platform =>
-        platform.toLowerCase().includes(selectedPlatform.toLowerCase()))) return false;
-      if (selectedStatus && item.seriesStatus !== selectedStatus) return false;
-      if (maxTimeMinutes !== undefined) {
-        const itemTime = calculateTitleTimeMinutes(item);
-        if (itemTime === undefined || itemTime > maxTimeMinutes) return false;
-      }
-      if (selectedRating !== 'Any' && item.externalRating < Number(selectedRating.replace('+', ''))) return false;
-
-      const minutes = item.category === 'game'
-        ? item.gamePlaytimeHours === undefined ? undefined : item.gamePlaytimeHours * 60
-        : item.runtimeMinutes;
-      if (selectedRuntime) {
-        if (minutes === undefined) return false;
-        const matchesMovie = item.category === 'movie'
-          && (selectedRuntime === 'Under 1h30m' ? minutes < 90
-            : selectedRuntime === '1h30m to 2h' ? minutes >= 90 && minutes <= 120 : minutes > 120);
-        const matchesGame = item.category === 'game'
-          && (selectedRuntime === 'Under 5hrs' ? minutes < 300
-            : selectedRuntime === '5 to 15hrs' ? minutes >= 300 && minutes < 900
-              : selectedRuntime === '15 to 30hrs' ? minutes >= 900 && minutes < 1800
-                : selectedRuntime === '30 to 60hrs' ? minutes >= 1800 && minutes < 3600 : minutes >= 3600);
-        const matchesEpisode = (item.category === 'tv' || item.category === 'anime')
-          && (selectedRuntime === 'Under 20min' ? minutes < 20
-            : selectedRuntime === '20 to 45min' ? minutes >= 20 && minutes <= 45 : minutes > 45);
-        if (!matchesMovie && !matchesGame && !matchesEpisode) return false;
-      }
-      return true;
-    });
+    const filtered = catalog.filter(item => !excludedIds.has(item.id));
     return [...filtered].sort((a, b) => {
       if (sortBy === 'Rating') return b.externalRating - a.externalRating;
       if (sortBy === 'Newest') return b.releaseYear - a.releaseYear;
       if (sortBy === 'Title') return a.title.localeCompare(b.title);
       if (sortBy === 'Shortest') {
-        const runtime = (item: MediaItem) => item.category === 'game'
-          ? (item.gamePlaytimeHours ?? Number.POSITIVE_INFINITY) * 60
-          : item.runtimeMinutes ?? Number.POSITIVE_INFINITY;
-        return runtime(a) - runtime(b);
+        const runtime = (item: MediaItem): number | undefined => item.category === 'game'
+          ? (item.gamePlaytimeHours === undefined ? undefined : item.gamePlaytimeHours * 60)
+          : item.runtimeMinutes;
+        return compareOptionalDurations(runtime(a), runtime(b));
       }
       return 0;
     });
-  }, [catalog, feedback, maxTimeMinutes, searchQuery, selectedGenres, selectedMoods, selectedPlatform, selectedRating, selectedRuntime, selectedStatus, sortBy]);
+  }, [catalog, feedback, sortBy]);
 
   if (!hydrated) {
     return (
@@ -247,7 +259,6 @@ function DiscoverContent() {
                 key={cat.id}
                 onClick={() => {
                   router.replace(`/discover?cat=${cat.id}`);
-                  setPage(2);
                   setHasMore(true);
                   setSelectedGenres([]);
                   setSelectedMoods([]);
@@ -439,6 +450,7 @@ function DiscoverContent() {
                   <option value="">Any status</option>
                   <option value="Completed">Completed</option>
                   <option value="Ongoing">Ongoing</option>
+                  <option value="Upcoming">Upcoming</option>
                 </select>
               </div>
             )}
@@ -472,7 +484,7 @@ function DiscoverContent() {
           <section className="md:col-span-3 lg:col-span-4">
             <div className="flex items-center justify-between mb-6 pb-2 border-b border-zinc-800/60">
               <h3 className="text-sm font-bold text-white">
-                Showing {filteredMatches.length} matches
+                Showing {filteredMatches.length} loaded matches
               </h3>
               <label className="flex items-center gap-1.5 text-xs text-zinc-400">
                 Sorted by
@@ -500,11 +512,34 @@ function DiscoverContent() {
                   </div>
                 ))}
               </div>
+            ) : loadError ? (
+              <div className="py-20 text-center">
+                <p className="text-sm font-semibold text-zinc-300">Couldn&apos;t load the catalog.</p>
+                <p className="mt-2 text-xs text-zinc-500">Check your connection and try again.</p>
+                <button
+                  onClick={() => setRetryToken(value => value + 1)}
+                  className="mt-4 rounded-full bg-[#BE123C] px-5 py-2 text-xs font-semibold text-white"
+                >
+                  Retry
+                </button>
+              </div>
             ) : filteredMatches.length === 0 ? (
               <div className="py-20 text-center">
-                <p className="text-sm font-semibold text-zinc-300">No titles match the selected filters.</p>
+                <p className="text-sm font-semibold text-zinc-300">
+                  {hasMore ? 'No matches in this batch. More of the catalog is still being searched.' : 'No titles match the selected filters.'}
+                </p>
+                {hasMore && (
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    className="mt-3 rounded-full bg-[#BE123C] px-5 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    {isLoadingMore ? 'Searching more titles...' : 'Continue searching'}
+                  </button>
+                )}
                 <button
                   onClick={() => {
+                    setSearchQuery('');
                     setSelectedGenres([]);
                     setSelectedMoods([]);
                     setSelectedRating('Any');
@@ -552,7 +587,7 @@ function DiscoverContent() {
                       )}
                     </button>
                     <p className="mt-2 text-[11px] text-zinc-500">
-                      {isFallback ? 'Offline sample catalog' : `Showing ${filteredMatches.length} titles from live API`}
+                      {isFallback ? 'Offline sample catalog' : 'Filters search through provider pages as you load more'}
                     </p>
                   </div>
                 )}
@@ -581,5 +616,3 @@ export default function DiscoverPage() {
     </Suspense>
   );
 }
-
-const EMPTY_FEEDBACK: UserFeedback[] = [];

@@ -2,7 +2,10 @@ import {
   scoreAndRankRecommendations,
   filterCatalog,
   calculateTitleTimeMinutes,
+  compareOptionalDurations,
 } from './src/lib/recommendation-engine';
+import { buildDiscoverUrl } from './src/lib/api-service';
+import { buildTMDBDiscoverUrl } from './src/lib/tmdb-query';
 import {
   MediaItem,
   UserPreferences,
@@ -143,6 +146,35 @@ function runTests() {
   const rpgIn30 = filtered30.find(item => item.id === 'game-test-rpg');
   assert(!rpgIn30, '100-hour game is strictly excluded from <= 30 min filter');
 
+  const tvFantasy: MediaItem = {
+    ...TEST_CATALOG[3],
+    id: 'tv-fantasy',
+    title: 'Fantasy series',
+    genres: ['Sci-Fi & Fantasy'],
+  };
+  const fantasyFilter = { ...strict30Filter, category: 'tv' as const, genres: ['Fantasy'], maxTimeMinutes: undefined };
+  assert(filterCatalog([tvFantasy], fantasyFilter, []).length === 1, 'TV Fantasy matches TMDB Sci-Fi & Fantasy genre');
+  const rpgFilter = { ...strict30Filter, category: 'game' as const, genres: ['RPG'], maxTimeMinutes: undefined };
+  assert(filterCatalog([{ ...TEST_CATALOG[2], genres: ['Role-Playing'] }], rpgFilter, []).length === 1, 'RPG filter matches Role-Playing provider labels');
+  const missingDuration = { ...TEST_CATALOG[0], id: 'movie-unknown-runtime', runtimeMinutes: undefined };
+  assert(filterCatalog([missingDuration], { ...strict30Filter, maxTimeMinutes: 180 }, []).length === 0, 'Strict duration filter excludes unknown runtimes');
+  assert(compareOptionalDurations(undefined, undefined) === 0, 'Unknown durations compare equally without producing NaN');
+  assert(compareOptionalDurations(undefined, 90) > 0 && compareOptionalDurations(90, undefined) < 0, 'Unknown durations sort after known durations');
+
+  const urlFilters: FilterState = {
+    ...strict30Filter,
+    releaseYearMin: 1990,
+    releaseYearMax: 2020,
+    runtimeMinMinutes: 20,
+    runtimeMaxMinutes: 45,
+  };
+  const discoverParams = new URLSearchParams(buildDiscoverUrl('movie', urlFilters).split('?')[1]);
+  assert(discoverParams.get('releaseYearMin') === '1990' && discoverParams.get('releaseYearMax') === '2020', 'Discover client forwards release-year bounds');
+  const movieRuntimeParams = new URL(buildTMDBDiscoverUrl('movie', 'test-key', 2, { min: 90, max: 120 })).searchParams;
+  const tvRuntimeParams = new URL(buildTMDBDiscoverUrl('tv', 'test-key', 1, { max: 45 })).searchParams;
+  assert(movieRuntimeParams.get('with_runtime.gte') === '90' && movieRuntimeParams.get('with_runtime.lte') === '120', 'TMDB movie discovery receives runtime bounds');
+  assert(tvRuntimeParams.get('with_runtime.lte') === '45', 'TMDB TV discovery receives episode runtime bound');
+
   // 3. Category Separation Test (FR-005)
   console.log('\n--- Test Suite 3: Category Filtering (FR-005) ---');
   const gameOnlyFilter: FilterState = {
@@ -199,6 +231,23 @@ function runTests() {
   const adaptedRanked = scoreAndRankRecommendations(TEST_CATALOG, coldPrefs, myList, reviews, []);
   const testScore = adaptedRanked.find(i => i.id === 'game-test-rpg')?.score || 0;
   const baseScore = coldRanked.find(i => i.id === 'game-test-rpg')?.score || 0;
+  const savedReviewWithoutCurrentCandidate: UserReview = {
+    id: 'rev-older-title',
+    mediaId: 'movie-not-in-feed',
+    category: 'movie',
+    title: 'Older title',
+    rating: 5,
+    genres: ['Sci-Fi'],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  const withStoredGenreHistory = scoreAndRankRecommendations(TEST_CATALOG, coldPrefs, [], [savedReviewWithoutCurrentCandidate], []);
+  const withoutStoredGenreHistory = scoreAndRankRecommendations(TEST_CATALOG, coldPrefs, [], [], []);
+  const sciFiScore = (items: typeof withStoredGenreHistory) => items.find(i => i.id === 'movie-test-1')?.score ?? 0;
+  assert(sciFiScore(withStoredGenreHistory) > sciFiScore(withoutStoredGenreHistory), 'Saved review genre snapshot affects ranking when reviewed title is absent from feed');
+  const lowRatedReview = { ...savedReviewWithoutCurrentCandidate, id: 'rev-low', rating: 1 };
+  const withLowRatedGenreHistory = scoreAndRankRecommendations(TEST_CATALOG, coldPrefs, [], [lowRatedReview], []);
+  assert(sciFiScore(withLowRatedGenreHistory) < sciFiScore(withoutStoredGenreHistory), 'Low review genre snapshot reduces similar recommendations');
   assert(testScore > baseScore + 30, 'Rating 5★ and Want to Try boosts recommendation score significantly');
 
   console.log(`\n====================================================`);

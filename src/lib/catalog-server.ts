@@ -1,12 +1,15 @@
 import 'server-only';
-import { MediaCategory, MediaItem } from '@/types';
+import { FilterState, MediaCategory, MediaItem } from '@/types';
+import { filterCatalog, calculateTitleTimeMinutes, compareOptionalDurations } from '@/lib/recommendation-engine';
 import { WATCHTOWR_CATALOG } from '@/lib/mock-data';
 import {
   fetchTrendingMovies, fetchTopRatedMovies, fetchTrendingTV, fetchTopRatedTV,
-  fetchTMDBDetails,
+  fetchTMDBDetails, fetchTrendingMoviesPage, fetchTrendingTVPage,
+  searchTMDBMovies, searchTMDBTV,
 } from '@/lib/tmdb';
-import { fetchTrendingAnime, fetchPopularAnime, fetchAnimeDetails } from '@/lib/anilist';
-import { fetchTrendingGames, fetchTopRatedGames, fetchGameDetails } from '@/lib/rawg';
+import type { TMDBRuntimeBounds } from '@/lib/tmdb-query';
+import { fetchTrendingAnime, fetchPopularAnime, fetchAnimeDetails, searchAnime } from '@/lib/anilist';
+import { fetchTrendingGames, fetchTopRatedGames, fetchGameDetails, searchGames } from '@/lib/rawg';
 
 export const MEDIA_CATEGORIES: MediaCategory[] = ['movie', 'tv', 'anime', 'game'];
 
@@ -14,13 +17,210 @@ function fallbackItems(category: MediaCategory): MediaItem[] {
   return WATCHTOWR_CATALOG.filter(item => item.category === category);
 }
 
-async function getProviderItems(category: MediaCategory, page: number): Promise<MediaItem[]> {
+function tmdbRuntimeBounds(filters?: FilterState): TMDBRuntimeBounds | undefined {
+  if (!filters || (filters.runtimeMinMinutes === undefined && filters.runtimeMaxMinutes === undefined && !filters.maxTimeMinutes)) {
+    return undefined;
+  }
+  const mins = [filters.runtimeMinMinutes].filter((value): value is number => value !== undefined);
+  const maxes = [filters.runtimeMaxMinutes, filters.maxTimeMinutes]
+    .filter((value): value is number => value !== undefined && value > 0);
+  return {
+    min: mins.length ? Math.max(...mins) : undefined,
+    max: maxes.length ? Math.min(...maxes) : undefined,
+  };
+}
+
+async function getProviderItems(category: MediaCategory, page: number, filters?: FilterState): Promise<MediaItem[]> {
   switch (category) {
-    case 'movie': return fetchTrendingMovies(page, 24);
-    case 'tv': return fetchTrendingTV(page, 24);
+    case 'movie': return fetchTrendingMovies(page, 24, tmdbRuntimeBounds(filters));
+    case 'tv': return fetchTrendingTV(page, 24, tmdbRuntimeBounds(filters));
     case 'anime': return fetchTrendingAnime(page, 24);
     case 'game': return fetchTrendingGames(page, 24);
   }
+}
+
+async function getSearchProviderPage(category: MediaCategory, page: number, filters: FilterState) {
+  if (category === 'movie') {
+    return fetchTrendingMoviesPage(page, 24, tmdbRuntimeBounds(filters));
+  }
+  if (category === 'tv') {
+    return fetchTrendingTVPage(page, 24, tmdbRuntimeBounds(filters));
+  }
+  const items = await getProviderItems(category, page);
+  return { items, available: items.length > 0 };
+}
+
+const DISCOVER_PAGE_SIZE = 48;
+const MAX_PROVIDER_PAGES_PER_REQUEST = 10;
+
+export interface CatalogSearchPage {
+  items: MediaItem[];
+  hasMore: boolean;
+  nextCursor: string | null;
+  isFallback: boolean;
+}
+
+export interface GlobalCatalogSearchPage {
+  items: MediaItem[];
+  hasMore: boolean;
+  page: number;
+  unavailableCategories: MediaCategory[];
+}
+
+/** Search each provider's own full text index, independent of currently loaded catalog pages. */
+export async function searchAllCatalogs(query: string, requestedPage = 1): Promise<GlobalCatalogSearchPage> {
+  const normalizedQuery = query.trim().slice(0, 120);
+  const page = Number.isInteger(requestedPage) ? Math.max(1, Math.min(500, requestedPage)) : 1;
+  if (!normalizedQuery) return { items: [], hasMore: false, page, unavailableCategories: [] };
+
+  const results = await Promise.all([
+    searchTMDBMovies(normalizedQuery, page),
+    searchTMDBTV(normalizedQuery, page),
+    searchAnime(normalizedQuery, page),
+    searchGames(normalizedQuery, page),
+  ]);
+  const categories: MediaCategory[] = ['movie', 'tv', 'anime', 'game'];
+  const unavailableCategories = categories.filter((_, index) => !results[index].available);
+  const items: MediaItem[] = [];
+  const maxResultsInAnyCategory = Math.max(0, ...results.map(result => result.items.length));
+
+  // Interleave provider-ranked results so every category appears near the top.
+  for (let index = 0; index < maxResultsInAnyCategory; index += 1) {
+    for (const result of results) {
+      const item = result.items[index];
+      if (item) items.push(item);
+    }
+  }
+
+  return {
+    items: [...new Map(items.map(item => [item.id, item])).values()],
+    hasMore: results.some(result => result.available && result.hasMore),
+    page,
+    unavailableCategories,
+  };
+}
+
+function pageSizeFor(category: MediaCategory): number {
+  // TMDB's v3 endpoints return 20 records per page; AniList and RAWG use 24 here.
+  return category === 'movie' || category === 'tv' ? 20 : 24;
+}
+
+function parseCursor(cursor?: string | null): { page: number; offset: number; fallbackOffset?: number } {
+  if (!cursor) return { page: 1, offset: 0 };
+  const fallbackMatch = /^fallback:(\d+)$/.exec(cursor);
+  if (fallbackMatch) return { page: 1, offset: 0, fallbackOffset: Number(fallbackMatch[1]) };
+  const match = /^(\d+):(\d+)$/.exec(cursor);
+  if (!match) return { page: 1, offset: 0 };
+  const page = Number(match[1]);
+  const offset = Number(match[2]);
+  return Number.isInteger(page) && page > 0 && Number.isInteger(offset) && offset >= 0
+    ? { page, offset }
+    : { page: 1, offset: 0 };
+}
+
+function sortCatalog(items: MediaItem[], sortBy: FilterState['sortBy']): MediaItem[] {
+  return [...items].sort((a, b) => {
+    if (sortBy === 'rating') return b.externalRating - a.externalRating;
+    if (sortBy === 'release') return b.releaseYear - a.releaseYear;
+    if (sortBy === 'title') return a.title.localeCompare(b.title);
+    if (sortBy === 'shortest_time') {
+      return compareOptionalDurations(calculateTitleTimeMinutes(a), calculateTitleTimeMinutes(b));
+    }
+    return 0;
+  });
+}
+
+/**
+ * Scan the provider's paginated catalog on the server and apply filters before
+ * returning a page. The cursor tracks both provider page and row offset so no
+ * matching records are lost between provider pages.
+ */
+export async function searchCatalog(
+  category: MediaCategory,
+  filters: FilterState,
+  cursor?: string | null,
+): Promise<CatalogSearchPage> {
+  const parsedCursor = parseCursor(cursor);
+  let page = parsedCursor.page;
+  let offset = parsedCursor.offset;
+  const fallbackOffset = parsedCursor.fallbackOffset;
+  const providerPageSize = pageSizeFor(category);
+  const matches: MediaItem[] = [];
+  let pagesScanned = 0;
+  const tmdbDurationFilter = category === 'movie' || category === 'tv';
+  const localFilters = tmdbDurationFilter
+    ? { ...filters, maxTimeMinutes: undefined, runtimeMinMinutes: undefined, runtimeMaxMinutes: undefined }
+    : filters;
+
+  if (fallbackOffset !== undefined) {
+    const fallback = filterCatalog(fallbackItems(category), filters, []);
+    const sortedFallback = sortCatalog(fallback, filters.sortBy);
+    const items = sortedFallback.slice(fallbackOffset, fallbackOffset + DISCOVER_PAGE_SIZE);
+    const nextOffset = fallbackOffset + items.length;
+    const hasMore = nextOffset < fallback.length;
+    return {
+      items,
+      hasMore,
+      nextCursor: hasMore ? `fallback:${nextOffset}` : null,
+      isFallback: true,
+    };
+  }
+
+  while (pagesScanned < MAX_PROVIDER_PAGES_PER_REQUEST) {
+    const providerPage = await getSearchProviderPage(category, page, filters);
+    const providerItems = providerPage.items;
+
+    if (!providerPage.available && page === 1 && offset === 0) {
+      const fallback = filterCatalog(fallbackItems(category), filters, []);
+      const sortedFallback = sortCatalog(fallback, filters.sortBy);
+      return {
+        items: sortedFallback.slice(0, DISCOVER_PAGE_SIZE),
+        hasMore: fallback.length > DISCOVER_PAGE_SIZE,
+        nextCursor: fallback.length > DISCOVER_PAGE_SIZE ? `fallback:${DISCOVER_PAGE_SIZE}` : null,
+        isFallback: true,
+      };
+    }
+
+    if (providerItems.length === 0) {
+      return { items: sortCatalog(matches, filters.sortBy), hasMore: false, nextCursor: null, isFallback: false };
+    }
+
+    for (let index = offset; index < providerItems.length; index += 1) {
+      const item = providerItems[index];
+      if (filterCatalog([item], localFilters, []).length > 0) matches.push(item);
+
+      if (matches.length >= DISCOVER_PAGE_SIZE) {
+        const nextOffset = index + 1;
+        const atEndOfProviderPage = nextOffset >= providerItems.length;
+        const hasMore = atEndOfProviderPage
+          ? providerItems.length >= providerPageSize
+          : true;
+        const nextPage = atEndOfProviderPage ? page + 1 : page;
+        const nextRow = atEndOfProviderPage ? 0 : nextOffset;
+        return {
+          items: sortCatalog(matches, filters.sortBy),
+          hasMore,
+          nextCursor: hasMore ? `${nextPage}:${nextRow}` : null,
+          isFallback: false,
+        };
+      }
+    }
+
+    if (providerItems.length < providerPageSize) {
+      return { items: sortCatalog(matches, filters.sortBy), hasMore: false, nextCursor: null, isFallback: false };
+    }
+
+    page += 1;
+    offset = 0;
+    pagesScanned += 1;
+  }
+
+  return {
+    items: sortCatalog(matches, filters.sortBy),
+    hasMore: true,
+    nextCursor: `${page}:${offset}`,
+    isFallback: false,
+  };
 }
 
 export async function getCatalog(category: MediaCategory, page = 1) {

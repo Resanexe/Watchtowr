@@ -3,7 +3,7 @@
 **Prepared by:** Hossain MD Siam  
 **Student ID:** 202409010735  
 **Supervisor / Lecturer:** Jibril Mohamed Hassan  
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Working draft for student and lecturer review  
 **Last updated:** 23 October 2026
 
@@ -129,15 +129,15 @@ Priority meanings: **Must** is needed for the assessed core product; **Should** 
 | ID | Requirement | Priority | Current prototype status |
 | --- | --- | --- | --- |
 | FR-001 | Visitors can browse categories and title details without an account. | Must | Implemented |
-| FR-002 | Users can search across titles and within a selected category. | Must | Implemented; search is limited to loaded catalog data |
+| FR-002 | Users can search across titles and within a selected category. | Must | Partially implemented; category discovery searches provider pages on the server and supports loading more matches, but results remain limited to provider coverage and pagination |
 | FR-003 | The homepage presents a mixed feed across the four categories. | Must | Implemented |
 | FR-004 | Guests receive general suggestions when personalized history is unavailable. | Must | Implemented with provider feeds and sample fallback |
 | FR-005 | Separate browsing views exist for Games, Anime, Movies, and TV Shows. | Must | Implemented |
-| FR-006 | Users can combine relevant filters supported by the selected category and available metadata. | Must | Partially implemented; filter coverage depends on provider fields and the loaded catalog |
+| FR-006 | Users can combine relevant filters supported by the selected category and available metadata. | Must | Partially implemented; server-side discovery filtering and provider genre/tag matching are in progress; coverage still depends on provider metadata |
 | FR-007 | A strict time filter excludes items with unknown time data and items exceeding the selected limit. | Must | Implemented for available per-item runtime or estimated game time |
 | FR-008 | Users can edit recommendation preferences, including categories, genres, moods, minimum rating, time, and discovery level. | Must | Partially implemented; available controls should be checked against this complete list |
 | FR-009 | Users can register, sign in, and sign out securely. | Must for account release | Not implemented; the current user switch is a local demo state |
-| FR-010 | Recommendations combine preferences, ratings, MyList behavior, and negative feedback using documented scoring rules. | Must | Implemented as a client-side scoring prototype; formula needs continued evaluation |
+| FR-010 | Recommendations combine preferences, ratings, MyList behavior, and negative feedback using documented scoring rules. | Must | A client-side scoring prototype exists in `src/lib/recommendation-engine.ts`; scoring quality and signal behavior still need systematic evaluation |
 | FR-011 | Guests and new users receive useful cold-start suggestions. | Must | Implemented |
 | FR-012 | Recommendation explanations refer only to signals that support the explanation. | Should | Implemented in the scoring prototype; verify against UI and actual data |
 | FR-013 | Users can mark a title Not Interested or Show Me Less Like This. | Must | Implemented with browser-local storage |
@@ -257,6 +257,26 @@ Before relying on a provider field, verify its current documentation for coverag
 
 Phases are ordered by dependency, not calendar dates. Adjust them after supervisor feedback and provider feasibility work.
 
+### 10.1 Current project checkpoint
+
+- The web prototype and provider integrations for TMDB, AniList, and RAWG are in place, with sample data as a fallback.
+- Catalog discovery and filtering are the current active work: the working copy is adding server-side filtering across provider pages, cursor-based loading, and matching against provider-specific genre names and tags. This work is not considered complete until the category filters are checked against live data and empty-result behavior is clear.
+- The recommendation engine already has a scoring prototype. Improving and evaluating this algorithm is the next major product priority once the discovery/filtering flow is stable.
+- The initial web MVP should be guest-accessible and usable without accounts. MyList and preference data can remain browser-local for that MVP if the UI clearly says it is local and unsynchronized. Real accounts, cloud sync, and mobile apps are later decisions, not prerequisites for proving the core web experience.
+
+### 10.2 Route from the current prototype to a web MVP
+
+Use this sequence as the practical work plan. Each step has a deliverable and a completion check; do not move a feature to “done” based only on implementation.
+
+| Step | Work | Deliverable | Completion check |
+| --- | --- | --- | --- |
+| 1. Stabilize discovery | Finish provider-page search/loading; verify each category's genre labels, tags, combined filters, sorting, pagination, and no-match/continue-search states. | Reliable category discovery across available provider data | Representative filters return matching live records; unsupported or missing metadata is explained; loading more does not skip or duplicate records |
+| 2. Make recommendations the core differentiator | Write down scoring inputs and weights; verify preference, rating, MyList, and feedback signals; fix cold-start and repetition behavior; make explanations trace to real score contributions. | Documented, explainable recommendation behavior | Example user profiles produce sensible, different rankings; hard filters remain hard; each explanation can be tied to a score signal |
+| 3. Complete the guest web journey | Review homepage, category pages, title details, preferences, MyList, reviews, responsive desktop layouts, and local-data disclosure; fix confusing or broken paths. | A complete guest-facing web MVP | A new visitor can discover, inspect, save, and revisit titles without sign-in, and understands which data is only stored in their browser |
+| 4. Prepare the web release | Confirm provider terms/attribution, environment variables, hosting/build setup, error handling, performance baseline, supported browsers, accessibility basics, and privacy text. | Release configuration and a launch checklist | A clean deployment can use server-only keys, withstand provider failure, and pass the agreed core-flow checks |
+| 5. Deploy and evaluate | Deploy the web MVP; walk through the core tasks on the hosted site; collect agreed user feedback and record defects before calling it ready. | Hosted demo/release and evaluation notes | Core tasks work in the deployed environment, high-severity defects are fixed or disclosed, and evaluation claims have recorded evidence |
+| 6. Decide on accounts and expansion | Review project time and supervisor requirements; if approved, design real auth, database persistence, ownership controls, migration, and deletion. Consider mobile work only after the web goal is met. | Explicitly scoped next release | Either the account phase has an approved implementation plan or the MVP clearly remains guest/local-data only |
+
 ### Phase 0 — Confirm requirements and data feasibility
 
 **Work:** review this PRD with the supervisor; decide the evaluation method; verify provider terms, fields, rate limits, and key handling; identify supported browsers and project constraints.
@@ -307,11 +327,11 @@ Phases are ordered by dependency, not calendar dates. Adjust them after supervis
 
 ### Phase 6 — Quality, evaluation, and release preparation
 
-**Work:** run functional, filter, recommendation, resilience, accessibility, and browser checks; conduct user evaluation; fix high-severity issues; prepare demonstration and report evidence.
+**Work:** perform functional, filter, recommendation, resilience, accessibility, and browser checks; conduct user evaluation; fix high-severity issues; prepare hosting configuration, demonstration, and report evidence.
 
-**Deliverables:** test/evaluation results, known-limitations list, release checklist, and project demonstration materials.
+**Deliverables:** test/evaluation results, known-limitations list, deployment checklist, hosted demo/release, and project demonstration materials.
 
-**Exit criteria:** all Must requirements included in the assessed release have evidence; unresolved scope is disclosed; supervisor agrees the submission is ready.
+**Exit criteria:** all Must requirements included in the assessed release have evidence; the deployed web experience completes the agreed core flows; unresolved scope is disclosed; supervisor agrees the submission is ready.
 
 ## 11. Verification and evaluation plan
 
@@ -355,12 +375,12 @@ Record expected result, actual result, build/version, and issue severity for eac
 
 ## 14. Proposed implementation priority
 
-1. **Core foundation:** provider feasibility, catalog routes, category pages, search, and fallbacks.
-2. **Discovery quality:** filters, strict time handling, mixed feed, and empty/error states.
-3. **Personalization prototype:** preferences, scoring, explanations, and cold-start behavior.
-4. **Personal activity:** MyList, ratings, reviews, negative feedback, and reset controls with local-storage disclosure.
-5. **Conditional production capabilities:** real accounts, persistent database, access policies, and account/data deletion.
-6. **Project completion:** evaluation, accessibility/browser checks, defect fixes, and academic documentation.
+1. **Finish catalog discovery:** provider-wide paginated search, genre/tag correctness, combined filters, sorting, and useful empty/loading states.
+2. **Improve the recommendation algorithm:** make this the main product differentiator; document and tune scoring, cold-start, feedback, diversity, and explanations.
+3. **Complete the guest web experience:** homepage, category browsing, title details, preferences, and local MyList/reviews with clear browser-local data disclosure.
+4. **Harden and deploy the web MVP:** provider terms, secret configuration, failure handling, accessibility/browser checks, hosting, and deployed core-flow verification.
+5. **Evaluate and iterate:** use recorded task results and user feedback to fix the highest-impact issues and support project claims.
+6. **Defer or plan accounts/mobile:** add server-backed accounts only if required and approved; start mobile work after the website goal is met.
 
 ## 15. Glossary
 
@@ -377,3 +397,4 @@ Record expected result, actual result, build/version, and issue severity for eac
 | --- | --- | --- |
 | 1.1 | 2026-10-18 | Source draft supplied for conversion |
 | 1.2 | 2026-10-23 | Converted to Markdown; clarified prototype status; added development phases, acceptance criteria, evaluation, security/privacy, and risks |
+| 1.3 | 2026-10-23 | Updated discovery and recommendation status; added a current checkpoint and ordered route from the working prototype to a deployed web MVP, with accounts/mobile staged afterward |

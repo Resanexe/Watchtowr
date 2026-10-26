@@ -33,6 +33,21 @@ interface TitlePageProps {
   }>;
 }
 
+const DEFAULT_REVIEWS: DetailedReview[] = [
+  {
+    username: 'aeris_clouds',
+    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
+    rating: 5.0,
+    text: 'The atmosphere is incredible. The pacing and character development keep things thrilling throughout.',
+  },
+  {
+    username: 'retroQuest',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80',
+    rating: 4.0,
+    text: 'Really enjoyed the balance between action and story. Highly recommended.',
+  },
+];
+
 export default function TitleDetailPage({ params }: TitlePageProps) {
   const hydrated = useHydrated();
   const resolvedParams = use(params);
@@ -45,28 +60,18 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
   const [isSaved, setIsSaved] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [userRating, setUserRating] = useState<number>(5);
-  const [reviewText, setReviewText] = useState(
-    'Incredible atmosphere, great pacing, and intense storytelling. Definitely one of the best in its genre.'
-  );
-
-  const [reviewsList, setReviewsList] = useState<DetailedReview[]>([
-    {
-      username: 'aeris_clouds',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
-      rating: 5.0,
-      text: 'The atmosphere is incredible. The pacing and character development keep things genuinely thrilling throughout.',
-    },
-    {
-      username: 'retroQuest',
-      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80',
-      rating: 4.0,
-      text: 'Really enjoyed the balance between action and story. Highly recommended.',
-    },
-  ]);
+  const [reviewText, setReviewText] = useState('');
+  const [reviewsList, setReviewsList] = useState<DetailedReview[]>(DEFAULT_REVIEWS);
 
   // Fetch real title details from API by ID
   useEffect(() => {
     let isMounted = true;
+    setItem(null);
+    setSimilarTitles([]);
+    setIsSaved(false);
+    setUserRating(5);
+    setReviewText('');
+    setReviewsList(DEFAULT_REVIEWS);
     fetchLiveDetails(mediaId)
       .then(data => {
         if (!isMounted) return;
@@ -121,7 +126,7 @@ export default function TitleDetailPage({ params }: TitlePageProps) {
     e.preventDefault();
     if (!reviewText.trim() || !item) return;
 
-    saveStoredReview(mediaId, item.category, item.title, userRating, reviewText);
+    saveStoredReview(mediaId, item.category, item.title, userRating, reviewText, [...item.genres, ...(item.genreTags || [])]);
 
     setReviewsList(prev => [
       {

@@ -6,6 +6,7 @@ import {
   MyListStatus,
   FeedbackType,
   MediaCategory,
+  ProfileAvatarColor,
 } from '@/types';
 
 const PREFS_KEY = 'watchtowr_user_preferences';
@@ -49,6 +50,9 @@ export interface UserSession {
   userId: string;
   username: string;
   displayName: string;
+  bio: string;
+  avatarColor: ProfileAvatarColor;
+  avatarDataUrl?: string;
 }
 
 export const GUEST_USER: UserSession = {
@@ -56,6 +60,8 @@ export const GUEST_USER: UserSession = {
   userId: 'guest-session',
   username: 'Guest Explorer',
   displayName: 'Guest Explorer',
+  bio: 'Finding my next favorite story.',
+  avatarColor: 'rose',
 };
 
 export const REGISTERED_DEMO_USER: UserSession = {
@@ -63,7 +69,28 @@ export const REGISTERED_DEMO_USER: UserSession = {
   userId: 'user-siam-demo',
   username: 'siam_watchtowr',
   displayName: 'Hossain Siam',
+  bio: 'Movies, anime, and games worth staying up for.',
+  avatarColor: 'violet',
 };
+
+export function normalizeSession(session: Partial<UserSession>): UserSession {
+  const validAvatarColors: ProfileAvatarColor[] = ['rose', 'violet', 'blue', 'emerald', 'amber'];
+  return {
+    ...GUEST_USER,
+    ...session,
+    username: typeof session.username === 'string' ? session.username : GUEST_USER.username,
+    displayName: typeof session.displayName === 'string' ? session.displayName : GUEST_USER.displayName,
+    bio: typeof session.bio === 'string' ? session.bio : GUEST_USER.bio,
+    avatarColor: validAvatarColors.includes(session.avatarColor as ProfileAvatarColor)
+      ? session.avatarColor as ProfileAvatarColor
+      : GUEST_USER.avatarColor,
+    avatarDataUrl: typeof session.avatarDataUrl === 'string'
+      && session.avatarDataUrl.length <= 350_000
+      && /^data:image\/(?:jpeg|png|webp);base64,/.test(session.avatarDataUrl)
+      ? session.avatarDataUrl
+      : undefined,
+  };
+}
 
 // Check if running on client
 const isClient = typeof window !== 'undefined';
@@ -72,7 +99,7 @@ export function getStoredSession(): UserSession {
   if (!isClient) return REGISTERED_DEMO_USER;
   try {
     const raw = localStorage.getItem(USER_SESSION_KEY);
-    return raw ? JSON.parse(raw) : REGISTERED_DEMO_USER;
+    return raw ? normalizeSession(JSON.parse(raw) as Partial<UserSession>) : REGISTERED_DEMO_USER;
   } catch {
     return REGISTERED_DEMO_USER;
   }
@@ -171,7 +198,8 @@ export function saveStoredReview(
   category: MediaCategory,
   title: string,
   rating: number,
-  reviewText?: string
+  reviewText?: string,
+  genres: string[] = [],
 ): UserReview[] {
   if (!isClient) return [];
   const reviews = getStoredReviews();
@@ -182,6 +210,7 @@ export function saveStoredReview(
     reviews[existingIdx] = {
       ...reviews[existingIdx],
       rating,
+      genres: genres.length ? genres : reviews[existingIdx].genres,
       reviewText,
       updatedAt: now,
     };
@@ -192,6 +221,7 @@ export function saveStoredReview(
       category,
       title,
       rating,
+      genres,
       reviewText,
       createdAt: now,
       updatedAt: now,

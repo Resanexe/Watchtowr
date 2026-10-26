@@ -1,5 +1,8 @@
 import 'server-only';
 import { MediaItem } from '@/types';
+import { buildTMDBDiscoverUrl } from '@/lib/tmdb-query';
+import type { TMDBRuntimeBounds } from '@/lib/tmdb-query';
+import { deriveMoods } from '@/lib/media-metadata';
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
@@ -102,7 +105,7 @@ function formatTMDBMovie(m: TMDBMovie): MediaItem {
     externalRating: ratingOutOfFive,
     externalVoteCount: m.vote_count,
     genres,
-    moods: ['Adrenaline / Thrill', 'Mind-Bending'],
+    moods: deriveMoods(genres),
     runtimeMinutes: m.runtime || undefined,
     contentLanguage: m.original_language,
   };
@@ -131,7 +134,7 @@ function formatTMDBTV(t: TMDBShow): MediaItem {
     externalRating: ratingOutOfFive,
     externalVoteCount: t.vote_count,
     genres,
-    moods: ['Dark & Gritty', 'Mind-Bending'],
+    moods: deriveMoods(genres),
     runtimeMinutes: t.episode_run_time?.[0] || undefined,
     episodeCount: t.number_of_episodes || undefined,
     seasonCount: t.number_of_seasons || undefined,
@@ -144,19 +147,27 @@ function formatTMDBTV(t: TMDBShow): MediaItem {
   };
 }
 
-export async function fetchTrendingMovies(page = 1, limit = 20): Promise<MediaItem[]> {
-  if (!TMDB_API_KEY) return [];
+export async function fetchTrendingMovies(page = 1, limit = 20, runtimeBounds?: TMDBRuntimeBounds): Promise<MediaItem[]> {
+  return (await fetchTrendingMoviesPage(page, limit, runtimeBounds)).items;
+}
+
+export async function fetchTrendingMoviesPage(
+  page = 1,
+  limit = 20,
+  runtimeBounds?: TMDBRuntimeBounds,
+): Promise<{ items: MediaItem[]; available: boolean }> {
+  if (!TMDB_API_KEY) return { items: [], available: false };
   try {
     const res = await fetch(
-      `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc`,
+      buildTMDBDiscoverUrl('movie', TMDB_API_KEY, page, runtimeBounds),
       { next: { revalidate: 3600 } }
     );
     if (!res.ok) throw new Error(`TMDB error ${res.status}`);
     const data = await res.json();
-    return ((data.results || []) as TMDBMovie[]).slice(0, limit).map(formatTMDBMovie);
+    return { items: ((data.results || []) as TMDBMovie[]).slice(0, limit).map(formatTMDBMovie), available: true };
   } catch (err) {
     console.error('TMDB trending movies error:', err);
-    return [];
+    return { items: [], available: false };
   }
 }
 
@@ -176,20 +187,67 @@ export async function fetchTopRatedMovies(page = 1, limit = 20): Promise<MediaIt
   }
 }
 
-export async function fetchTrendingTV(page = 1, limit = 20): Promise<MediaItem[]> {
-  if (!TMDB_API_KEY) return [];
+export async function fetchTrendingTV(page = 1, limit = 20, runtimeBounds?: TMDBRuntimeBounds): Promise<MediaItem[]> {
+  return (await fetchTrendingTVPage(page, limit, runtimeBounds)).items;
+}
+
+export async function fetchTrendingTVPage(
+  page = 1,
+  limit = 20,
+  runtimeBounds?: TMDBRuntimeBounds,
+): Promise<{ items: MediaItem[]; available: boolean }> {
+  if (!TMDB_API_KEY) return { items: [], available: false };
   try {
     const res = await fetch(
-      `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc`,
+      buildTMDBDiscoverUrl('tv', TMDB_API_KEY, page, runtimeBounds),
       { next: { revalidate: 3600 } }
     );
     if (!res.ok) throw new Error(`TMDB trending TV error ${res.status}`);
     const data = await res.json();
-    return ((data.results || []) as TMDBShow[]).slice(0, limit).map(formatTMDBTV);
+    return { items: ((data.results || []) as TMDBShow[]).slice(0, limit).map(formatTMDBTV), available: true };
   } catch (err) {
     console.error('TMDB trending TV error:', err);
-    return [];
+    return { items: [], available: false };
   }
+}
+
+async function searchTMDB<T>(
+  type: 'movie' | 'tv',
+  query: string,
+  page: number,
+  limit: number,
+  format: (item: T) => MediaItem,
+): Promise<{ items: MediaItem[]; hasMore: boolean; available: boolean }> {
+  if (!TMDB_API_KEY) return { items: [], hasMore: false, available: false };
+  try {
+    const params = new URLSearchParams({
+      api_key: TMDB_API_KEY,
+      query,
+      page: String(page),
+      include_adult: 'false',
+    });
+    const res = await fetch(`https://api.themoviedb.org/3/search/${type}?${params}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) throw new Error(`TMDB ${type} search error ${res.status}`);
+    const data = await res.json();
+    return {
+      items: ((data.results || []) as T[]).slice(0, limit).map(format),
+      hasMore: Number(data.page || page) < Number(data.total_pages || 0),
+      available: true,
+    };
+  } catch (err) {
+    console.error(`TMDB ${type} search error:`, err);
+    return { items: [], hasMore: false, available: false };
+  }
+}
+
+export function searchTMDBMovies(query: string, page = 1, limit = 20) {
+  return searchTMDB<TMDBMovie>('movie', query, page, limit, formatTMDBMovie);
+}
+
+export function searchTMDBTV(query: string, page = 1, limit = 20) {
+  return searchTMDB<TMDBShow>('tv', query, page, limit, formatTMDBTV);
 }
 
 export async function fetchTopRatedTV(page = 1, limit = 20): Promise<MediaItem[]> {

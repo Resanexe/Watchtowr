@@ -1,5 +1,6 @@
 import 'server-only';
 import { MediaItem } from '@/types';
+import { deriveMoods } from '@/lib/media-metadata';
 
 const RAWG_API_KEY = process.env.RAWG_API_KEY;
 
@@ -13,6 +14,7 @@ interface RAWGGame {
   rating?: number;
   ratings_count?: number;
   genres?: Array<{ name: string }>;
+  tags?: Array<{ name: string }>;
   platforms?: Array<{ platform?: { name?: string } }>;
   playtime?: number;
   developers?: Array<{ name: string }>;
@@ -26,6 +28,7 @@ function formatRAWGGame(g: RAWGGame): MediaItem {
 
   const ratingOutOfFive = Number((g.rating || 0).toFixed(1));
   const year = g.released ? parseInt(g.released.slice(0, 4), 10) : 0;
+  const genreTags = (g.tags || []).map(tag => tag.name);
 
   return {
     id: `game-${g.id}`,
@@ -40,9 +43,10 @@ function formatRAWGGame(g: RAWGGame): MediaItem {
     externalRating: ratingOutOfFive,
     externalVoteCount: g.ratings_count,
     genres,
-    moods: ['Epic Adventure', 'Adrenaline / Thrill'],
+    genreTags,
+    moods: deriveMoods([...genres, ...genreTags]),
     gamePlaytimeHours: g.playtime && g.playtime > 0 ? g.playtime : undefined,
-    gamePlatforms: platforms.length > 0 ? platforms.slice(0, 4) : undefined,
+    gamePlatforms: platforms.length > 0 ? platforms : undefined,
     gameModes: undefined,
     developerOrDirector: g.developers?.[0]?.name,
   };
@@ -77,6 +81,35 @@ export async function fetchTopRatedGames(page = 1, limit = 24): Promise<MediaIte
   } catch (err) {
     console.error('RAWG top rated error:', err);
     return [];
+  }
+}
+
+export async function searchGames(query: string, page = 1, limit = 20): Promise<{
+  items: MediaItem[];
+  hasMore: boolean;
+  available: boolean;
+}> {
+  if (!RAWG_API_KEY) return { items: [], hasMore: false, available: false };
+  try {
+    const params = new URLSearchParams({
+      key: RAWG_API_KEY,
+      search: query,
+      page: String(page),
+      page_size: String(limit),
+    });
+    const res = await fetch(`https://api.rawg.io/api/games?${params}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) throw new Error(`RAWG search error ${res.status}`);
+    const data = await res.json();
+    return {
+      items: ((data.results || []) as RAWGGame[]).map(formatRAWGGame),
+      hasMore: Boolean(data.next),
+      available: true,
+    };
+  } catch (err) {
+    console.error('RAWG search error:', err);
+    return { items: [], hasMore: false, available: false };
   }
 }
 

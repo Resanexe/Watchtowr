@@ -4,6 +4,8 @@ export type MyListStatus = 'want_to_try' | 'in_progress' | 'completed' | 'droppe
 
 export type FeedbackType = 'not_interested' | 'show_less_like_this';
 
+export type ProfileAvatarColor = 'rose' | 'violet' | 'blue' | 'emerald' | 'amber';
+
 export type PresetMood = 
   | 'Chilling / Cozy'
   | 'Adrenaline / Thrill'
@@ -28,6 +30,8 @@ export interface MediaItem {
   externalRating: number; // 0.0 to 5.0 scale
   externalVoteCount?: number;
   genres: string[];
+  /** Additional provider tags that can be used by discovery genre filters. */
+  genreTags?: string[];
   moods: PresetMood[];
 
   // Strict Time & Length Fields (PRD FR-007)
@@ -75,6 +79,8 @@ export interface UserReview {
   category: MediaCategory;
   title: string;
   rating: number; // 1 to 5 stars
+  /** Genre snapshot used to personalize recommendations even when the title is not in the current feed. */
+  genres?: string[];
   reviewText?: string;
   createdAt: string;
   updatedAt: string;
@@ -93,11 +99,14 @@ export interface FilterState {
   searchQuery: string;
   genres: string[];
   mood?: PresetMood;
+  moods?: PresetMood[];
   minRating: number;
   maxRating: number;
   releaseYearMin?: number;
   releaseYearMax?: number;
   maxTimeMinutes?: number;      // Strict time filter (runtime or episode or game playtime in mins)
+  runtimeMinMinutes?: number;
+  runtimeMaxMinutes?: number;
   strictTimeOnly: boolean;      // If true, discard titles where required time data is unknown
   platform?: string;            // Games
   seriesStatus?: string;        // TV / Anime

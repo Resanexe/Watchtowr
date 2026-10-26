@@ -189,7 +189,7 @@ function FeedbackControls({
         type="button"
         aria-label="Show me fewer titles like this"
         title="Show me less like this"
-        onClick={() => onFeedback(item.id, 'show_less_like_this', item.genres)}
+        onClick={() => onFeedback(item.id, 'show_less_like_this', [...item.genres, ...(item.genreTags || [])])}
         className="rounded-md p-1.5 text-white hover:bg-amber-500/30 hover:text-amber-200"
       >
         <ThumbsDown className="h-3.5 w-3.5" />
@@ -198,7 +198,7 @@ function FeedbackControls({
         type="button"
         aria-label="Not interested in this title"
         title="Not interested"
-        onClick={() => onFeedback(item.id, 'not_interested', item.genres)}
+        onClick={() => onFeedback(item.id, 'not_interested', [...item.genres, ...(item.genreTags || [])])}
         className="rounded-md p-1.5 text-white hover:bg-rose-500/30 hover:text-rose-200"
       >
         <EyeOff className="h-3.5 w-3.5" />
